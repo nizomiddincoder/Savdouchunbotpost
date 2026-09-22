@@ -100,3 +100,45 @@ Server bazasiz ham ishlaydi va har 5 soniyada qayta urinadi — Logs'dagi xabarg
 | `3D000` | URL oxiridagi baza nomi (odatda `railway`) yo'q |
 
 To'g'ri sozlanganini tekshirish: brauzerda `https://sizning-app.up.railway.app/api/health` oching — `"db_ready": true` bo'lishi kerak.
+
+---
+
+## 3a. Windows + XPrinter USB sozlash (print-agent)
+
+### 1) XPrinter drayverini o'rnatish
+1. Printerga USB kabelni ulang va quvvatini yoqing
+2. Windows uni o'zi topmasa — XPrinter drayverini rasmiy saytdan o'rnating
+3. Drayver o'rnatilgach printer Windows'da oddiy printer sifatida paydo bo'ladi
+
+### 2) Printer nomini topish
+1. Windows Settings > Bluetooth & devices > Printers & scanners ni oching
+2. XPrinter'ni toping va **aniq nomini** nusxalab oling (masalan `XPrinter_58`, `POS-80C` — bo'sh joy yoki maxsus belgilar bo'lsa ham muammo yo'q)
+
+### 3) print-agent sozlash (do'kondagi Windows kompyuterda)
+1. Loyiha papkasida `print-agent/.env` fayl yarating (`.env.example` dan nusxa):
+
+```
+SERVER_URL=wss://sizning-app.up.railway.app
+AGENT_TOKEN=railway-dagi-bilan-bir-xil-token
+PRINTER_MODE=windows
+PRINTER_NAME=YUQORIDAGI_ANIQ_PRINTER_NOMI
+```
+
+2. Terminalni `print-agent` papkasida oching:
+
+```
+npm install
+node agent.js
+```
+
+- `PRINTER_NAME` yozilmasa, agent Windows'dagi printerlarni o'zi ro'yxatlab ko'rsatadi va XPrinter ehtimolini belgilaydi — lekin tasodifiy printerga hech narsa yubormaydi.
+- Printer nomini admin paneldan ham berish mumkin: Admin panel > Sozlamalar > "Windows printer nomi" > Saqlash. Server bu nomni agentga `config` xabari bilan yuboradi — agentni qayta ishga tushirish shart emas.
+
+### 4) Test chop etish
+- **Paneldan:** Admin panel > Sozlamalar > "🖨 Printer test" tugmasi
+- Printerda `PRINTER TEST / XPrinter OK` yozuvli chek chiqib, qog'oz kesilishi kerak
+
+### 5) Real chek
+POS'da oddiy savdo qiling — chek avtomatik chiqadi. Agent konsolida
+`[PRINT] Print job sent successfully` ko'rinadi. Chiqmasa, konsoldagi
+`[PRINT ERROR]` xabarini o'qing (ko'pincha printer nomi noto'g'ri yozilgan bo'ladi).
