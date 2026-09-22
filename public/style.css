@@ -107,6 +107,20 @@ input, select { font: inherit; }
 .inp:focus { outline: none; border-color: var(--acc); }
 .total-row { display: flex; justify-content: space-between; padding: 14px 0 4px; font-size: 17px; }
 
+/* Nasiya (qarz) elementlari */
+.debt-box {
+  margin-top: 10px; padding: 10px 12px; border-radius: 12px;
+  background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; font-size: 13.5px;
+}
+.total-row.total-debt { color: var(--danger); font-size: 16px; padding-top: 6px; }
+.nasiya-line { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.nasiya-price {
+  width: 96px; padding: 4px 6px; border: 1.5px solid var(--line); border-radius: 8px;
+  font-size: 13px; font-weight: 700; color: var(--ink); background: #fff;
+}
+.nasiya-price:focus { outline: none; border-color: var(--acc); }
+.debt-red { color: var(--danger); }
+
 .ok-emoji { text-align: center; font-size: 44px; }
 .receipt-mini {
   text-align: center; background: #f8fafc; border: 1px dashed var(--line);

@@ -28,6 +28,8 @@ async function buildReceipt(saleId) {
     payment_method: s.payment_method || 'naqd',
     items: items.map(i => ({ name: i.product_name, qty: i.qty, price_uzs: Number(i.price_uzs), line_total_uzs: Number(i.line_total_uzs) })),
     total_uzs: Number(s.total_uzs),
+    old_debt_uzs: Number(s.old_debt_uzs || 0),
+    total_with_debt_uzs: Number(s.old_debt_uzs || 0) + Number(s.total_uzs),
     is_cancelled: s.is_cancelled,
     cancelled_by: s.cancelled_by,
     cancelled_at: s.cancelled_at ? new Date(s.cancelled_at).toLocaleString('sv-SE', { timeZone: TZ }).replace('T', ' ').slice(0, 16) : null,
@@ -71,26 +73,39 @@ router.post('/', anyAuth, async (req, res, next) => {
         // Mavjud xaridorning raqami yangilansa — saqlaymiz
         await client.query('UPDATE customers SET phone = $1 WHERE id = $2 AND phone IS DISTINCT FROM $1', [phone, c.id]);
       }
+      // Xaridorning eski nasiyasi (har safar ko'rsatiladi, faqat nasiya savdosida qarzga qo'shiladi)
+      const oldDebt = Number((await client.query('SELECT debt_uzs FROM customers WHERE id = $1', [c.id])).rows[0].debt_uzs || 0);
       let total = 0;
       const lines = [];
       for (const it of items) {
         const qty = Math.max(1, parseInt(it.qty) || 1);
         const p = (await client.query('SELECT id, name, price, currency FROM products WHERE id = $1 AND is_deleted = false', [it.product_id])).rows[0];
         if (!p) throw new Error('Mahsulot topilmadi (ID ' + it.product_id + ')');
-        const priceUzs = p.currency === 'USD' ? Math.round(Number(p.price) * rate) : Math.round(Number(p.price));
+        const baseUzs = p.currency === 'USD' ? Math.round(Number(p.price) * rate) : Math.round(Number(p.price));
+        let priceUzs = baseUzs;
+        // Nasiya savdosida sotuvchi har bir mahsulot narxini o'zgartira oladi
+        if (pay === 'nasiya' && it.price_uzs !== undefined && it.price_uzs !== null && it.price_uzs !== '') {
+          const cp = Math.round(Number(it.price_uzs));
+          if (!isFinite(cp) || cp < 0) throw new Error(p.name + " — nasiya narxi noto'g'ri kiritilgan");
+          priceUzs = cp;
+        }
         const lineTotal = priceUzs * qty;
         total += lineTotal;
-        lines.push({ p, qty, priceUzs, lineTotal });
+        lines.push({ p, qty, priceUzs, baseUzs, lineTotal });
       }
       const sale = (await client.query(
-        `INSERT INTO sales (seller_id, customer_id, customer_name, total_uzs, usd_rate, payment_method)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [req.user.id, c.id, cname, total, rate, pay])).rows[0];
+        `INSERT INTO sales (seller_id, customer_id, customer_name, total_uzs, usd_rate, payment_method, old_debt_uzs)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [req.user.id, c.id, cname, total, rate, pay, oldDebt])).rows[0];
       for (const l of lines) {
         await client.query(
-          `INSERT INTO sale_items (sale_id, product_id, product_name, qty, price_orig, currency, price_uzs, line_total_uzs)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [sale.id, l.p.id, l.p.name, l.qty, l.p.price, l.p.currency, l.priceUzs, l.lineTotal]);
+          `INSERT INTO sale_items (sale_id, product_id, product_name, qty, price_orig, currency, price_uzs, line_total_uzs, base_price_uzs)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [sale.id, l.p.id, l.p.name, l.qty, l.p.price, l.p.currency, l.priceUzs, l.lineTotal, l.baseUzs]);
+      }
+      // Nasiya savdo summasi xaridor qarziga qo'shiladi
+      if (pay === 'nasiya' && total > 0) {
+        await client.query('UPDATE customers SET debt_uzs = debt_uzs + $1 WHERE id = $2', [total, c.id]);
       }
       await client.query('COMMIT');
       const receipt = await buildReceipt(sale.id);
@@ -186,6 +201,16 @@ router.post('/:id/cancel', anyAuth, async (req, res, next) => {
     const byName = req.user.role === 'admin' ? 'Admin' : req.user.name;
     await q('UPDATE sales SET is_cancelled = true, cancelled_by = $1, cancelled_at = now(), cancel_reason = $2 WHERE id = $3',
       [byName, String(req.body.reason || '').trim().slice(0, 200) || null, s.id]);
+    // Nasiya savdo bekor qilinsa — qarzdan ham yechiladi va tarixga yoziladi
+    if (s.payment_method === 'nasiya' && s.customer_id && Number(s.total_uzs) > 0) {
+      const upd = await q('UPDATE customers SET debt_uzs = GREATEST(debt_uzs - $1, 0) WHERE id = $2 RETURNING debt_uzs',
+        [Number(s.total_uzs), s.customer_id]);
+      if (upd.rows[0]) {
+        await q(`INSERT INTO customer_payments (customer_id, amount_uzs, kind, note, by_name, debt_after_uzs)
+          VALUES ($1, $2, 'cancel', $3, $4, $5)`,
+          [s.customer_id, -Number(s.total_uzs), 'Chek #' + s.id + ' bekor qilindi' + (req.body.reason ? ' (' + String(req.body.reason).slice(0, 150) + ')' : ''), byName, Number(upd.rows[0].debt_uzs)]);
+      }
+    }
     const receipt = await buildReceipt(s.id);
     notifyCancel(receipt, byName, req.body.reason).catch(() => {});
     res.json({ ok: true });

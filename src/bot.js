@@ -69,6 +69,13 @@ async function notifySale(r) {
   if (!process.env.BOT_TOKEN || !groupChatId) return;
   const lines = r.items.map(i => `• ${i.name} ×${i.qty} — ${fmtUz(i.line_total_uzs)} so'm`).join('\n');
   const pay = { naqd: '💵 Naqd', karta: '💳 Plastik karta', nasiya: '📕 Nasiya' }[r.payment_method] || '💵 Naqd';
+  const oldDebt = Number(r.old_debt_uzs || 0);
+  const debtInfo = oldDebt > 0
+    ? `📕 Eski nasiya: ${fmtUz(oldDebt)} so'm\n` +
+      (r.payment_method === 'nasiya'
+        ? `📚 Umumiy nasiya: ${fmtUz(Number(r.total_with_debt_uzs != null ? r.total_with_debt_uzs : r.total_uzs + oldDebt))} so'm\n`
+        : '')
+    : '';
   await tg('sendMessage', {
     chat_id: groupChatId,
     text: `🧾 Chek #${String(r.receipt_no).padStart(6, '0')}\n` +
@@ -76,6 +83,7 @@ async function notifySale(r) {
       `👤 Sotuvchi: ${r.seller_name}\n` +
       `🛍 Xaridor: ${r.customer_name}\n${lines}\n` +
       `💰 Jami: ${fmtUz(r.total_uzs)} so'm\n` +
+      debtInfo +
       `${pay}`
   });
 }
