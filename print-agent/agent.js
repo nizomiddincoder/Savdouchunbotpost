@@ -2,10 +2,10 @@
 // Serverga WebSocket orqali ulanib turadi, yangi savdo tushishi bilan chekni chop etadi.
 // USB XPrinter: Windows'da oddiy printer sifatida o'rnatiladi, agent ESC/POS baytlarni
 // to'g'ridan-to'g'ri Windows print spooler orqali (winspool RAW) yuboradi.
-<<<<<<< HEAD
+
 // Chek 80mm termal qog'oz (Font A = 48 belgi) uchun optimallashtirilgan.
-=======
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
+
+ b0680c9d51eca093b33b00b2a70ce6e9011466ba
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
