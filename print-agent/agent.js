@@ -2,10 +2,7 @@
 // Serverga WebSocket orqali ulanib turadi, yangi savdo tushishi bilan chekni chop etadi.
 // USB XPrinter: Windows'da oddiy printer sifatida o'rnatiladi, agent ESC/POS baytlarni
 // to'g'ridan-to'g'ri Windows print spooler orqali (winspool RAW) yuboradi.
-
 // Chek 80mm termal qog'oz (Font A = 48 belgi) uchun optimallashtirilgan.
-
- b0680c9d51eca093b33b00b2a70ce6e9011466ba
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -31,11 +28,7 @@ const TOKEN = process.env.AGENT_TOKEN || 'savdo-agent-token';
 // USB Windows printer — asosiy rejim. Server "config" xabari bilan bu qiymatlarni
 // istalgan vaqtda yangilashi mumkin (agentni qayta yozish shart emas).
 let MODE = (process.env.PRINTER_MODE || 'windows').toLowerCase();     // windows | network | share | console
-<<<<<<< HEAD
-let PRINTER_NAME = process.env.PRINTER_NAME || 'POSPrinter POS-80C';      // Windows'dagi printer nomi
-=======
-let PRINTER_NAME = process.env.PRINTER_NAME || 'POSPrinter POS-80C';                    // Windows'dagi printer nomi (bo'sh joy bo'lsa ham bo'ladi)
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
+let PRINTER_NAME = process.env.PRINTER_NAME || 'POSPrinter POS-80C'; // Windows'dagi printer nomi (aniq nomini Printers & scanners'dan oling)
 const HOST0 = process.env.PRINTER_HOST || '192.168.1.50';
 let PORT = parseInt(process.env.PRINTER_PORT || '9100', 10);
 const SHARE = process.env.PRINTER_SHARE || '';
@@ -44,7 +37,6 @@ let HOST = HOST0;
 
 const PS_SCRIPT = path.join(__dirname, 'print-raw.ps1');
 
-<<<<<<< HEAD
 /* ===== 80mm ESC/POS yordamchi funksiyalari ===== */
 
 // 80mm termal printer Font A: qatorda 48 belgi
@@ -52,8 +44,6 @@ const W = 48;
 // Jadval ustunlari kengliklari (jami 48: 3+17+5+4+9+10)
 const COL_NO = 2, COL_NAME = 17, COL_PACK = 5, COL_QTY = 4, COL_PRICE = 9, COL_SUM = 10;
 
-=======
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
 function sanitize(s) {
   return String(s == null ? '' : s)
     .replace(/[\u2018\u2019\u02BC\u00B4]/g, "'")
@@ -101,7 +91,6 @@ function wrapText(t, w) {
   return lines.length ? lines : [''];
 }
 
-<<<<<<< HEAD
 // UZS: bo'sh joy bilan raqam guruhlash (2 596 / 77 880 / 1 541 080)
 function formatMoney(n) { return Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
 // USD: 130,60 $
@@ -125,9 +114,6 @@ function formatReceiptRow(no, name, pack, qty, price, sum) {
 }
 
 /* ===== ESC/POS chek (80mm) ===== */
-=======
-// ESC/POS — termal printerlar uchun umumiy protokol (o'zgarmas)
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
 function buildEscpos(r, reprint) {
   const a = [];
   const push = (...bs) => bs.forEach(b => a.push(b & 0xff));
@@ -207,7 +193,6 @@ function buildEscpos(r, reprint) {
     if (hasUsd) lr('Ески карз:', formatUsd(usdOf(oldDebt)) + ' ' + formatMoney(oldDebt) + ' сум');
     else lr('Ески карз:', formatMoney(oldDebt) + ' сум');
   }
-<<<<<<< HEAD
   if (r.payment_method === 'nasiya') {
     const tot = r.total_with_debt_uzs != null ? Number(r.total_with_debt_uzs) : Number(r.total_uzs) + oldDebt;
     if (hasUsd) lr('Колган карз:', formatUsd(usdOf(tot)) + ' ' + formatMoney(tot) + ' сум');
@@ -215,19 +200,6 @@ function buildEscpos(r, reprint) {
   }
   text('Толув: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
 
-=======
-  sep();
-  bold(1); lr('JAMI:', fmt(r.total_uzs) + " so'm"); bold(0);
-  const oldDebt = Number(r.old_debt_uzs || 0);
-  if (oldDebt > 0) lr('Eski nasiya:', fmt(oldDebt) + " so'm");
-  if (r.payment_method === 'nasiya') {
-    if (oldDebt > 0) {
-      const tot = r.total_with_debt_uzs != null ? Number(r.total_with_debt_uzs) : Number(r.total_uzs) + oldDebt;
-      bold(1); lr('UMUMIY NASIYA:', fmt(tot) + " so'm"); bold(0);
-    }
-  }
-  text('Tolov: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
   if (r.is_cancelled) {
     bold(1); push(0x1b, 0x61, 0x01); center('*** БЕКОР КИЛИНГАН ***'); push(0x1b, 0x61, 0x00); bold(0);
   }
@@ -247,7 +219,6 @@ function buildEscpos(r, reprint) {
   return Buffer.from(a);
 }
 
-<<<<<<< HEAD
 // Test cheki — { type: 'test-print' } kelganda yoki `node agent.js --test` bilan chop etiladi
 function buildTestReceipt() {
   const a = [];
@@ -265,7 +236,7 @@ function buildTestReceipt() {
   push(0x1b, 0x32);           // qator orasi
   center('='.repeat(31));
   push(0x1d, 0x21, 0x11);     // ikki barobar shrift
-  center(r.shop_name || 'MEXMASH', 24);
+  center('MEXMASH', 24);
   center('PRINTER TEST', 24);
   push(0x1d, 0x21, 0x00);
   center('='.repeat(31));
@@ -278,29 +249,6 @@ function buildTestReceipt() {
   center('='.repeat(31));
   nl(); nl(); nl(); nl();
   push(0x1d, 0x56, 0x42, 0x00); // qog'ozni kesish
-=======
-// Test cheki — { type: 'test-print' } kelganda chop etiladi
-function buildTestReceipt() {
-  const W = 32;
-  const a = [];
-  const push = (...bs) => bs.forEach(b => a.push(b & 0xff));
-  const text = s => { for (const ch of sanitize(s)) a.push(ch.charCodeAt(0) & 0xff); };
-  const nl = () => push(0x0a);
-  const center = s => {
-    const t = sanitize(s).slice(0, W);
-    text(' '.repeat(Math.max(0, Math.floor((W - t.length) / 2))) + t);
-    nl();
-  };
-  push(0x1b, 0x40); // init
-  push(0x1b, 0x61, 0x01);
-  center('==============================');
-  center('PRINTER TEST');
-  center('XPrinter OK');
-  center('==============================');
-  push(0x1b, 0x61, 0x00);
-  nl(); nl();
-  push(0x1d, 0x56, 0x42, 0x00); // kesish
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
   return Buffer.from(a);
 }
 
@@ -313,11 +261,7 @@ function printWindows(name, buf) {
     const tmp = path.join(os.tmpdir(), 'chek-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.bin');
     try { fs.writeFileSync(tmp, buf); } catch (e) { return reject(new Error('Vaqtinchalik fayl yozib bo\'lmadi: ' + e.message)); }
     const done = (err, code) => { fs.unlink(tmp, () => {}); err ? reject(err) : resolve(); };
-<<<<<<< HEAD
     console.log('[PRINT] Sending to Windows printer...');
-=======
-    console.log('[PRINT] Sending ESC/POS data...');
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
     console.log('[PRINT] Printer name: ' + name);
     execFile('powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS_SCRIPT, '-PrinterName', name, '-FilePath', tmp],
@@ -325,11 +269,7 @@ function printWindows(name, buf) {
       (err, stdout, stderr) => {
         const out = String(stdout || '');
         if (!err && /PRINTED/.test(out)) {
-<<<<<<< HEAD
           console.log('[PRINT] Print job completed');
-=======
-          console.log('[PRINT] Print job sent successfully (Windows spooler)');
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
           return done(null);
         }
         const code = err ? err.code : '';
@@ -342,11 +282,7 @@ function printWindows(name, buf) {
   });
 }
 
-<<<<<<< HEAD
 /* Windows'dagi o'rnatilgan printerni ro'yxati (xato bo'lsa yordam uchun) */
-=======
-/* Windows'dagi o'rnatilgan printerni ro'yxati (PRINTER_NAME berilmaganda yordam uchun) */
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
 function listWindowsPrinters() {
   return new Promise(resolve => {
     execFile('powershell.exe',
@@ -361,32 +297,12 @@ function listWindowsPrinters() {
 
 /* ===== Umumiy yuborish ===== */
 async function printBuf(buf, r) {
-<<<<<<< HEAD
   console.log('[PRINT] ESC/POS buffer size: ' + buf.length + ' bytes');
   if (MODE === 'windows') {
-=======
-  if (MODE === 'windows') {
-    if (!PRINTER_NAME) {
-      console.error('[PRINT ERROR] PRINTER_NAME kiritilmagan. Windows printerni o\'rnating va print-agent/.env ga nomini yozing.');
-      const list = await listWindowsPrinters();
-      if (list.length) {
-        console.error('[PRINT ERROR] Windows\'dagi printerlar:');
-        for (const p of list) {
-          const hit = /xprinter|pos|thermal|58|80/i.test(p) ? '  <=== ehtimol shu' : '';
-          console.error('   - "' + p + '"' + hit);
-        }
-        console.error('[PRINT ERROR] Kerakli nomni .env ga yozing: PRINTER_NAME=<yuqoridagi aniq nom>');
-      } else {
-        console.error('[PRINT ERROR] Windows\'da printer topilmadi — XPrinter drayverini o\'rnating.');
-      }
-      return;
-    }
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
     try {
       await printWindows(PRINTER_NAME, buf);
     } catch (e) {
       console.error('[PRINT ERROR] ' + e.message);
-<<<<<<< HEAD
       if (/topilmadi/.test(e.message)) {
         const list = await listWindowsPrinters();
         if (list.length) {
@@ -398,18 +314,12 @@ async function printBuf(buf, r) {
           console.error('[PRINT ERROR] Kerakli nomni print-agent/.env ga yozing: PRINTER_NAME=<yuqoridagi aniq nom>');
         }
       }
-=======
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
     }
   } else if (MODE === 'network') {
     const s = net.connect(PORT, HOST, () => {
       s.write(buf);
       s.end();
-<<<<<<< HEAD
       console.log('[PRINT] Print job completed (tarmoq):', HOST + ':' + PORT, 'chek', r.receipt_no);
-=======
-      console.log('[PRINT] Print job sent successfully (tarmoq):', HOST + ':' + PORT, 'chek', r.receipt_no);
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
     });
     s.on('error', e => console.error('[PRINT ERROR] Printer xatosi:', e.message));
   } else if (MODE === 'share' && SHARE) {
@@ -417,19 +327,11 @@ async function printBuf(buf, r) {
     fs.writeFileSync(tmp, buf);
     execFile('cmd', ['/c', 'copy', '/b', tmp, SHARE], err => {
       if (err) console.error('[PRINT ERROR] Windows ulash printeri xatosi (SHARE nomini tekshiring):', err.message);
-<<<<<<< HEAD
       else console.log('[PRINT] Print job completed (Windows ulash):', SHARE, 'chek', r.receipt_no);
       fs.unlink(tmp, () => {});
     });
   } else {
     console.log('[PRINT] (console rejimi — chop etilmadi) Chek', r.receipt_no, formatMoney(r.total_uzs), "so'm");
-=======
-      else console.log('[PRINT] Print job sent successfully (Windows ulash):', SHARE, 'chek', r.receipt_no);
-      fs.unlink(tmp, () => {});
-    });
-  } else {
-    console.log('[PRINT] (console rejimi — chop etilmadi) Chek', r.receipt_no, fmt(r.total_uzs), "so'm");
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
   }
 }
 
@@ -458,7 +360,6 @@ function connect() {
       const d = JSON.parse(m);
       if (d.type === 'print') {
         console.log('[PRINT] Print command received (chek ' + (d.receipt && d.receipt.receipt_no) + ')');
-<<<<<<< HEAD
         console.log('[PRINT] Receipt generated');
         console.log('[PRINT] Paper width: 80mm');
         console.log('[PRINT] Printer: ' + PRINTER_NAME);
@@ -468,13 +369,6 @@ function connect() {
         console.log('[PRINT] Receipt generated (test)');
         console.log('[PRINT] Paper width: 80mm');
         console.log('[PRINT] Printer: ' + PRINTER_NAME);
-=======
-        console.log('[PRINT] Printer mode: ' + MODE);
-        printBuf(buildEscpos(d.receipt, d.reprint), d.receipt || {});
-      } else if (d.type === 'test-print') {
-        console.log('[PRINT] Test print command received');
-        console.log('[PRINT] Printer mode: ' + MODE);
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
         printBuf(buildTestReceipt(), { receipt_no: 'TEST' });
       } else if (d.type === 'config') {
         applyConfig(d.config);
@@ -488,7 +382,6 @@ function connect() {
     setTimeout(connect, 5000);
   });
   ws.on('error', e => console.error('[PRINT ERROR] WebSocket:', e.message));
-<<<<<<< HEAD
 }
 
 /* Test chop: node agent.js --test */
@@ -502,28 +395,3 @@ if (process.argv.includes('--test')) {
   console.log('[PRINT] Printer: ' + PRINTER_NAME);
   connect();
 }
-=======
-}
-
-/* Ishga tushishda tekshiruv: windows rejimida PRINTER_NAME bo'lmasa — ro'yxat ko'rsatamiz */
-(async () => {
-  console.log('[PRINT] Printer mode: ' + MODE);
-  if (MODE === 'windows' && !PRINTER_NAME) {
-    console.log('[PRINT] PRINTER_NAME kiritilmagan — Windows\'dagi printerlar tekshirilmoqda...');
-    const list = await listWindowsPrinters();
-    if (list.length) {
-      console.log('[PRINT] O\'rnatilgan printerlar:');
-      for (const p of list) {
-        const hit = /xprinter|pos|thermal|58|80/i.test(p) ? '  <=== ehtimol shu' : '';
-        console.log('   - "' + p + '"' + hit);
-      }
-      console.log('[PRINT] print-agent/.env fayliga yozing: PRINTER_NAME=<yuqoridagi aniq nom>');
-      console.log('[PRINT] Qayta ishga tushiring: node agent.js');
-    } else {
-      console.log('[PRINT] Windows\'da printer topilmadi. XPrinter drayverini o\'rnating (README ga qarang).');
-    }
-    console.log('[PRINT] Eslatma: agent ishlashda davom etadi, lekin PRINTER_NAME kirguncha chek chop etilmaydi.');
-  }
-  connect();
-})();
->>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
