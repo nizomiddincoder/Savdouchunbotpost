@@ -1,6 +1,6 @@
 const router = require('express').Router();
 const ExcelJS = require('exceljs');
-const { q, getSettings } = require('../db');
+const { pool, q, getSettings } = require('../db');
 const { middleware, hashPin, checkPin } = require('../auth');
 
 const anyAuth = middleware();
@@ -70,7 +70,7 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
 router.get('/customers', adminOnly, async (req, res, next) => {
   try {
     const { rows } = await q(`
-      SELECT c.id, c.name, c.phone, s.name AS first_seller,
+      SELECT c.id, c.name, c.phone, c.debt_uzs, s.name AS first_seller,
         to_char((c.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD') AS first_seen,
         count(v.id) FILTER (WHERE v.is_cancelled = false) AS visits,
         coalesce(sum(v.total_uzs) FILTER (WHERE v.is_cancelled = false), 0) AS total_spent,
@@ -78,13 +78,14 @@ router.get('/customers', adminOnly, async (req, res, next) => {
       FROM customers c
       LEFT JOIN sellers s ON s.id = c.first_seller_id
       LEFT JOIN sales v ON v.customer_id = c.id
-      GROUP BY c.id, c.name, c.phone, s.name, c.created_at
+      GROUP BY c.id, c.name, c.phone, c.debt_uzs, s.name, c.created_at
       ORDER BY max(v.created_at) DESC NULLS LAST
       LIMIT 500`);
     res.json({
       customers: rows.map(r => ({
         id: r.id, name: r.name, phone: r.phone, first_seller: r.first_seller, first_seen: r.first_seen,
-        visits: Number(r.visits), total_spent: Number(r.total_spent), last_visit: r.last_visit
+        visits: Number(r.visits), total_spent: Number(r.total_spent), last_visit: r.last_visit,
+        debt_uzs: Number(r.debt_uzs)
       }))
     });
   } catch (e) { next(e); }
@@ -92,8 +93,107 @@ router.get('/customers', adminOnly, async (req, res, next) => {
 
 router.get('/customers/names', anyAuth, async (req, res, next) => {
   try {
-    const { rows } = await q('SELECT name, phone FROM customers ORDER BY created_at DESC LIMIT 300');
-    res.json({ names: rows.map(r => ({ name: r.name, phone: r.phone })) });
+    const { rows } = await q('SELECT name, phone, debt_uzs FROM customers ORDER BY created_at DESC LIMIT 300');
+    res.json({ names: rows.map(r => ({ name: r.name, phone: r.phone, debt: Number(r.debt_uzs) })) });
+  } catch (e) { next(e); }
+});
+
+/* Xaridorning to'liq tarixi: savdolar + qarz harakatlari (faqat admin) */
+router.get('/customers/:id/history', adminOnly, async (req, res, next) => {
+  try {
+    const { rows } = await q(`
+      SELECT c.id, c.name, c.phone, c.debt_uzs, s.name AS first_seller,
+        to_char((c.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD') AS first_seen
+      FROM customers c LEFT JOIN sellers s ON s.id = c.first_seller_id
+      WHERE c.id = $1`, [req.params.id]);
+    const c = rows[0];
+    if (!c) throw new Error('Xaridor topilmadi');
+    const sales = (await q(`
+      SELECT v.id, v.total_uzs, v.old_debt_uzs, v.payment_method, v.is_cancelled, v.cancelled_by,
+        to_char((v.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS t,
+        sel.name AS seller_name,
+        (SELECT count(*) FROM sale_items si WHERE si.sale_id = v.id) AS items_count
+      FROM sales v JOIN sellers sel ON sel.id = v.seller_id
+      WHERE v.customer_id = $1 ORDER BY v.id DESC LIMIT 200`, [req.params.id])).rows;
+    const payments = (await q(`
+      SELECT id, amount_uzs, kind, note, by_name, debt_after_uzs,
+        to_char((created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS t
+      FROM customer_payments WHERE customer_id = $1 ORDER BY id DESC LIMIT 200`, [req.params.id])).rows;
+    res.json({
+      customer: {
+        id: c.id, name: c.name, phone: c.phone, debt_uzs: Number(c.debt_uzs),
+        first_seller: c.first_seller, first_seen: c.first_seen
+      },
+      sales: sales.map(s => ({
+        id: s.id, t: s.t, total_uzs: Number(s.total_uzs), old_debt_uzs: Number(s.old_debt_uzs),
+        payment_method: s.payment_method, is_cancelled: s.is_cancelled, cancelled_by: s.cancelled_by,
+        seller_name: s.seller_name, items_count: Number(s.items_count)
+      })),
+      payments: payments.map(p => ({
+        id: p.id, t: p.t, amount_uzs: Number(p.amount_uzs), kind: p.kind, note: p.note,
+        by_name: p.by_name, debt_after_uzs: Number(p.debt_after_uzs)
+      }))
+    });
+  } catch (e) { next(e); }
+});
+
+/* Qarz to'lovini qayd etish (qarz kamayadi) */
+router.post('/customers/:id/pay-debt', adminOnly, async (req, res, next) => {
+  try {
+    const amount = Math.round(Number(req.body.amount));
+    if (!(amount > 0)) throw new Error("To'lov summasini kiriting");
+    const note = String(req.body.note || '').trim().slice(0, 200) || null;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const c = (await client.query('SELECT id, debt_uzs FROM customers WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+      if (!c) throw new Error('Xaridor topilmadi');
+      const debt = Number(c.debt_uzs);
+      if (debt <= 0) throw new Error("Bu xaridorning qarzi yo'q");
+      if (amount > debt) throw new Error("To'lov qarzdan katta bo'lmasligi kerak (qarz: " + debt + " so'm)");
+      const upd = (await client.query('UPDATE customers SET debt_uzs = debt_uzs - $1 WHERE id = $2 RETURNING debt_uzs', [amount, c.id])).rows[0];
+      await client.query(
+        `INSERT INTO customer_payments (customer_id, amount_uzs, kind, note, by_name, debt_after_uzs)
+         VALUES ($1, $2, 'payment', $3, $4, $5)`,
+        [c.id, -amount, note, req.user.name, Number(upd.debt_uzs)]);
+      await client.query('COMMIT');
+      res.json({ ok: true, debt_uzs: Number(upd.debt_uzs) });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) { next(e); }
+});
+
+/* Qarzni qo'lda tuzatish (admin istalgan qiymatga o'zgartiradi) */
+router.patch('/customers/:id/debt', adminOnly, async (req, res, next) => {
+  try {
+    const newDebt = Math.round(Number(req.body.debt_uzs));
+    if (!isFinite(newDebt) || newDebt < 0) throw new Error("Qarz summasi noto'g'ri");
+    const reason = String(req.body.reason || '').trim().slice(0, 200) || 'admin tuzatdi';
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const c = (await client.query('SELECT id, debt_uzs FROM customers WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+      if (!c) throw new Error('Xaridor topilmadi');
+      const delta = newDebt - Number(c.debt_uzs);
+      if (delta !== 0) {
+        await client.query('UPDATE customers SET debt_uzs = $1 WHERE id = $2', [newDebt, c.id]);
+        await client.query(
+          `INSERT INTO customer_payments (customer_id, amount_uzs, kind, note, by_name, debt_after_uzs)
+           VALUES ($1, $2, 'adjust', $3, $4, $5)`,
+          [c.id, delta, reason, req.user.name, newDebt]);
+      }
+      await client.query('COMMIT');
+      res.json({ ok: true, debt_uzs: newDebt });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (e) { next(e); }
 });
 
@@ -137,28 +237,42 @@ router.get('/stats/dashboard', adminOnly, async (req, res, next) => {
 router.get('/settings', adminOnly, async (req, res, next) => {
   try {
     const st = await getSettings();
-    res.json({ shop_name: st.shop_name, shop_phone: st.shop_phone, usd_rate: Number(st.usd_rate) });
+    res.json({ shop_name: st.shop_name, shop_phone: st.shop_phone, usd_rate: Number(st.usd_rate), printer_name: st.printer_name || '' });
   } catch (e) { next(e); }
 });
 
 router.put('/settings', adminOnly, async (req, res, next) => {
   try {
-    const { shop_name, shop_phone, usd_rate } = req.body;
+    const { shop_name, shop_phone, usd_rate, printer_name } = req.body;
     if (!(Number(usd_rate) > 0)) throw new Error('USD kursi noto\'g\'ri');
-    await q('UPDATE settings SET shop_name = $1, shop_phone = $2, usd_rate = $3 WHERE id = 1',
-      [String(shop_name || '').trim().slice(0, 100) || 'Mening dokoni', String(shop_phone || '').trim().slice(0, 30), usd_rate]);
+    await q('UPDATE settings SET shop_name = $1, shop_phone = $2, usd_rate = $3, printer_name = $4 WHERE id = 1',
+      [String(shop_name || '').trim().slice(0, 100) || 'Mening dokoni', String(shop_phone || '').trim().slice(0, 30),
+       usd_rate, String(printer_name || '').trim().slice(0, 120)]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/* Print-agent test cheki — ulangan agentga { type: 'test-print' } yuboradi */
+router.post('/printer/test', anyAuth, async (req, res, next) => {
+  try {
+    const { agentOnline, broadcast } = require('../ws');
+    if (!agentOnline()) {
+      return res.status(503).json({ error: 'Print-agent ulanmagan. Do\'kondagi kompyuterda print-agent ishga tushirilganini tekshiring (node agent.js).' });
+    }
+    broadcast({ type: 'test-print' });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
 /* ================= Excel hisobotlar ================= */
 async function buildReport(period, value, res, filename) {
-  const where = period === 'day'
-    ? `(v.created_at AT TIME ZONE '${TZ}')::date = $1::date`
-    : `to_char((v.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM') = $1`;
+  const dateWhere = a => period === 'day'
+    ? `(${a}.created_at AT TIME ZONE '${TZ}')::date = $1::date`
+    : `to_char((${a}.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM') = $1`;
+  const where = dateWhere('v');
   const sales = (await q(`
     SELECT v.id, to_char((v.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS t,
-      sel.name AS seller, v.customer_name, v.total_uzs, v.is_cancelled, v.cancelled_by, v.cancel_reason,
+      sel.name AS seller, v.customer_name, v.total_uzs, v.old_debt_uzs, v.payment_method, v.is_cancelled, v.cancelled_by, v.cancel_reason,
       (SELECT string_agg(si.product_name || ' x' || si.qty, ', ') FROM sale_items si WHERE si.sale_id = v.id) AS items
     FROM sales v JOIN sellers sel ON sel.id = v.seller_id WHERE ${where} ORDER BY v.id`, [value])).rows;
   const prods = (await q(`
@@ -196,10 +310,16 @@ async function buildReport(period, value, res, filename) {
     { header: 'Xaridor', key: 'customer', width: 20 },
     { header: 'Mahsulotlar', key: 'items', width: 55 },
     { header: "Summa (so'm)", key: 'sum', width: 15 },
+    { header: "To'lov", key: 'pay', width: 13 },
+    { header: 'Eski nasiya', key: 'olddebt', width: 13 },
+    { header: 'Umumiy nasiya', key: 'totdebt', width: 14 },
     { header: 'Holat', key: 'status', width: 24 }
   ], sales.map(s => ({
     id: s.id, t: s.t, seller: s.seller, customer: s.customer_name, items: s.items || '',
     sum: s.is_cancelled ? 0 : Number(s.total_uzs),
+    pay: { naqd: 'Naqd', karta: 'Karta', nasiya: 'Nasiya' }[s.payment_method] || 'Naqd',
+    olddebt: s.payment_method === 'nasiya' ? Number(s.old_debt_uzs || 0) : '',
+    totdebt: s.payment_method === 'nasiya' ? Number(s.old_debt_uzs || 0) + Number(s.total_uzs) : '',
     status: s.is_cancelled ? 'BEKOR (' + (s.cancelled_by || '') + (s.cancel_reason ? ': ' + s.cancel_reason : '') + ')' : 'sotilgan'
   })));
   mk('Mahsulotlar', [
@@ -222,6 +342,20 @@ async function buildReport(period, value, res, filename) {
     name: c.name, c: Number(c.c), s: Number(c.s),
     st: (period === 'day' ? c.first_seen === value : c.first_seen.slice(0, 7) === value) ? 'yangi' : 'eski',
     fs: c.first_seller || ''
+  })));
+  // Qarzdor xaridorlar — hozirgi qarz va shu davrda qilingan to'lovlar
+  const debts = (await q(`
+    SELECT c.name, c.phone, c.debt_uzs,
+      (SELECT coalesce(sum(-p.amount_uzs), 0) FROM customer_payments p
+        WHERE p.customer_id = c.id AND p.kind = 'payment' AND ${dateWhere('p')})
+    FROM customers c WHERE c.debt_uzs > 0 ORDER BY c.debt_uzs DESC`, [value])).rows;
+  mk('Qarzlar', [
+    { header: 'Xaridor', key: 'name', width: 25 },
+    { header: 'Telefon', key: 'phone', width: 18 },
+    { header: "Hozirgi qarz (so'm)", key: 'debt', width: 20 },
+    { header: "To'langan (so'm)", key: 'paid', width: 18 }
+  ], debts.map(d => ({
+    name: d.name, phone: d.phone || '', debt: Number(d.debt_uzs), paid: Number(d.paid)
   })));
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename="' + filename + '"');

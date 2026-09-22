@@ -77,9 +77,32 @@ async function initDb() {
       line_total_uzs BIGINT NOT NULL
     );
   `);
+  // Qarz (nasiya) hisobi uchun jadval — to'lovlar, tuzatishlar va bekor qilingan cheklar tarixi
+  await q(`
+    CREATE TABLE IF NOT EXISTS customer_payments (
+      id SERIAL PRIMARY KEY,
+      customer_id INT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      amount_uzs BIGINT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'payment',
+      note TEXT,
+      by_name TEXT NOT NULL,
+      debt_after_uzs BIGINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+  await q(`CREATE INDEX IF NOT EXISTS customer_payments_cust_idx ON customer_payments (customer_id, id)`);
   // Migratsiyalar (eski bazalar uchun ham ishlaydi)
   await q(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await q(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS debt_uzs BIGINT NOT NULL DEFAULT 0`);
   await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'naqd'`);
+  await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS old_debt_uzs BIGINT NOT NULL DEFAULT 0`);
+  await q(`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS base_price_uzs BIGINT`);
+  // Eski yozuvlarda asosiy narx bo'sh qolmasin
+  await q(`UPDATE sale_items SET base_price_uzs = price_uzs WHERE base_price_uzs IS NULL`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_mode TEXT NOT NULL DEFAULT 'network'`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_host TEXT NOT NULL DEFAULT ''`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_port INT NOT NULL DEFAULT 9100`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_share TEXT NOT NULL DEFAULT ''`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_name TEXT NOT NULL DEFAULT ''`);
   // Bir xil nomli mahsulot/xaridor takrorlanmasligi uchun
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS products_norm_uniq
     ON products (lower(btrim(regexp_replace(name, '\\s+', ' ', 'g')))) WHERE is_deleted = false`);

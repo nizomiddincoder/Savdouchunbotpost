@@ -257,42 +257,84 @@ async function openCart() {
   if (!items.length) return;
   await ensureCustNames();
   let pay = 'naqd';
+  const nasiyaPrice = {};   // product_id -> sotuvchi o'zgartirgan nasiya narxi (UZS)
   openModal(
     '<h3>🛒 Savat</h3>' +
-    '<div id="cartList">' + items.map(it =>
-      '<div class="cart-row" data-id="' + it.p.id + '">' +
-      '<div class="cr-name">' + esc(it.p.name) + '<div class="muted sm">' + money(it.p.price_uzs) + '</div></div>' +
-      '<div class="cr-qty"><button class="qbtn" data-act="minus">−</button><b class="qv">' + it.qty + '</b><button class="qbtn" data-act="plus">+</button></div>' +
-      '<div class="cr-sum">' + money(it.p.price_uzs * it.qty) + '</div>' +
-      '</div>'
-    ).join('') + '</div>' +
+    '<div id="cartList"></div>' +
     '<label class="lbl">Xaridor ismi *</label>' +
     '<input id="custName" class="inp" list="custList" placeholder="Masalan: Aziz" autocomplete="off">' +
     '<datalist id="custList">' + (custNames || []).map(c => '<option value="' + esc(c.name) + '"' + (c.phone ? ' label="' + esc(c.phone) + '"' : '') + '>').join('') + '</datalist>' +
     '<label class="lbl">Telefon (ixtiyoriy — eski xaridor tanlansa o\'zi chiqadi)</label>' +
     '<input id="custPhone" class="inp" type="tel" placeholder="Masalan: 90 123 45 67" autocomplete="off">' +
+    '<div class="debt-box" id="debtBox" hidden></div>' +
     '<label class="lbl">To\'lov usuli</label>' +
     '<div class="pay-select" id="paySel">' +
     Object.keys(PAY_LABELS).map(k => '<button type="button" class="pay-btn' + (k === 'naqd' ? ' on' : '') + '" data-pay="' + k + '">' + PAY_LABELS[k] + '</button>').join('') +
     '</div>' +
-    '<div class="total-row"><span>Jami:</span><b id="cartTotalEl">' + money(cartTotal()) + '</b></div>' +
+    '<div class="hint" id="nasiyaHint" hidden>📕 Nasiya rejimi: har bir mahsulotning narxini bosing va o\'zgartiring (naqd narxdan farq qilishi mumkin)</div>' +
+    '<div class="total-row"><span>Jami:</span><b id="cartTotalEl"></b></div>' +
+    '<div class="total-row total-debt" id="debtTotalRow" hidden><span>Umumiy (eski nasiya bilan):</span><b id="debtTotalEl"></b></div>' +
     '<button class="btn big" id="btnSell">✅ Sotish</button>'
   );
 
   const nameInp = document.getElementById('custName');
   const phoneInp = document.getElementById('custPhone');
   let phoneAuto = false;
+  const findCust = () => {
+    const qv = nameInp.value.trim().toLowerCase();
+    return (custNames || []).find(c => c.name.toLowerCase() === qv) || null;
+  };
+  const priceOf = it => (pay === 'nasiya' && nasiyaPrice[it.p.id] != null ? nasiyaPrice[it.p.id] : it.p.price_uzs);
+  const total = () => cartItems().reduce((a, it) => a + priceOf(it) * it.qty, 0);
+
+  const renderRows = () => {
+    const list = document.getElementById('cartList');
+    list.innerHTML = cartItems().map(it => {
+      const pr = priceOf(it);
+      return '<div class="cart-row" data-id="' + it.p.id + '">' +
+        '<div class="cr-name">' + esc(it.p.name) +
+        '<div class="muted sm nasiya-line">' +
+        (pay === 'nasiya'
+          ? 'Naqd: ' + fmt(it.p.price_uzs) + ' → <input class="nasiya-price" data-pid="' + it.p.id + '" type="number" min="0" step="1" inputmode="numeric" value="' + pr + '"> so\'m'
+          : money(it.p.price_uzs)) +
+        '</div></div>' +
+        '<div class="cr-qty"><button class="qbtn" data-act="minus">−</button><b class="qv">' + it.qty + '</b><button class="qbtn" data-act="plus">+</button></div>' +
+        '<div class="cr-sum" data-sum="' + it.p.id + '">' + money(pr * it.qty) + '</div>' +
+        '</div>';
+    }).join('');
+  };
+
+  const recalc = () => {
+    document.getElementById('cartTotalEl').textContent = money(total());
+    const c = findCust();
+    const old = c ? Number(c.debt || 0) : 0;
+    const box = document.getElementById('debtBox');
+    if (old > 0) {
+      box.hidden = false;
+      box.innerHTML = '📕 ' + esc(c.name) + 'ning eski nasiyasi: <b>' + money(old) + '</b>';
+    } else box.hidden = true;
+    const row = document.getElementById('debtTotalRow');
+    if (pay === 'nasiya' && old > 0) {
+      row.hidden = false;
+      document.getElementById('debtTotalEl').textContent = money(total() + old);
+    } else row.hidden = true;
+  };
+
   nameInp.oninput = () => {
     const qv = nameInp.value.trim().toLowerCase();
     const m = (custNames || []).find(c => c.name.toLowerCase() === qv);
     if (m && m.phone) { phoneInp.value = m.phone; phoneAuto = true; }
     else if (phoneAuto) { phoneInp.value = ''; phoneAuto = false; }
+    recalc();
   };
   document.getElementById('paySel').onclick = e => {
     const b = e.target.closest('.pay-btn');
     if (!b) return;
     pay = b.dataset.pay;
     document.querySelectorAll('#paySel .pay-btn').forEach(x => x.classList.toggle('on', x === b));
+    document.getElementById('nasiyaHint').hidden = pay !== 'nasiya';
+    renderRows();
+    recalc();
   };
 
   document.getElementById('cartList').onclick = e => {
@@ -306,12 +348,32 @@ async function openCart() {
       if (cart[id] <= 0) { delete cart[id]; row.remove(); }
     }
     if (cart[id] !== undefined) row.querySelector('.qv').textContent = cart[id];
-    const it = cartItems().find(x => x.p.id === id);
-    if (it) row.querySelector('.cr-sum').textContent = money(it.p.price_uzs * it.qty);
-    document.getElementById('cartTotalEl').textContent = money(cartTotal());
+    renderRows();
+    recalc();
     updateCartBar();
     if (!Object.keys(cart).length) closeModal();
   };
+  // Nasiya narxi tahrirlanganda — qator va jami summa yangilanadi (fokus saqlanadi)
+  document.getElementById('cartList').addEventListener('input', e => {
+    const inp = e.target.closest('.nasiya-price');
+    if (!inp) return;
+    const pid = +inp.dataset.pid;
+    const v = parseInt(inp.value, 10);
+    if (isFinite(v) && v >= 0) nasiyaPrice[pid] = v;
+    else delete nasiyaPrice[pid];
+    const it = cartItems().find(x => x.p.id === pid);
+    const sumEl = document.querySelector('#cartList [data-sum="' + pid + '"]');
+    if (it && sumEl) sumEl.textContent = money(priceOf(it) * it.qty);
+    document.getElementById('cartTotalEl').textContent = money(total());
+    const c = findCust();
+    const old = c ? Number(c.debt || 0) : 0;
+    if (pay === 'nasiya' && old > 0 && !document.getElementById('debtTotalRow').hidden) {
+      document.getElementById('debtTotalEl').textContent = money(total() + old);
+    }
+  });
+
+  renderRows();
+  recalc();
 
   document.getElementById('btnSell').onclick = async function () {
     const cname = nameInp.value.trim();
@@ -322,7 +384,11 @@ async function openCart() {
       const d = await api('/sales', {
         method: 'POST',
         body: {
-          items: Object.keys(cart).map(k => ({ product_id: +k, qty: cart[k] })),
+          items: Object.keys(cart).map(k => {
+            const o = { product_id: +k, qty: cart[k] };
+            if (pay === 'nasiya' && nasiyaPrice[+k] != null) o.price_uzs = nasiyaPrice[+k];
+            return o;
+          }),
           customer_name: cname,
           customer_phone: phoneInp.value.trim(),
           payment_method: pay
@@ -340,13 +406,18 @@ async function openCart() {
 }
 
 function openSuccess(r) {
+  const oldDebt = Number(r.old_debt_uzs || 0);
   openModal(
     '<div class="ok-emoji">✅</div>' +
     '<h3 style="text-align:center">Sotildi!</h3>' +
     '<div class="receipt-mini">' +
     '<div>Chek ' + chekNo(r.receipt_no) + '</div>' +
-    '<div class="muted sm">' + esc(r.customer_name) + ' • ' + r.items.length + ' ta mahsulot</div>' +
+    '<div class="muted sm">' + esc(r.customer_name) + ' • ' + r.items.length + ' ta mahsulot • ' + (PAY_LABELS[r.payment_method] || PAY_LABELS.naqd).replace(/^\S+\s/, '') + '</div>' +
     '<div class="ok-total">' + money(r.total_uzs) + '</div>' +
+    (r.payment_method === 'nasiya' && oldDebt > 0
+      ? '<div class="muted sm">Eski nasiya: ' + money(oldDebt) + '</div>' +
+        '<div class="ok-total" style="color:var(--danger)">Umumiy nasiya: ' + money(r.total_with_debt_uzs) + '</div>'
+      : (oldDebt > 0 ? '<div class="muted sm" style="color:var(--danger)">Eski nasiyasi bor: ' + money(oldDebt) + '</div>' : '')) +
     '</div>' +
     '<div class="muted sm" style="text-align:center">Chek printerga yuborildi. Chiqmagan bo\'lsa — qayta chop etish tugmasini bosing.</div>' +
     '<div style="height:12px"></div>' +
@@ -565,6 +636,12 @@ async function receiptModal(id) {
     r.items.map(i => '<div class="p-item"><span>' + esc(i.name) + ' ×' + i.qty + '</span><span>' + fmt(i.line_total_uzs) + '</span></div>').join('') +
     '<div class="p-sep"></div>' +
     '<div class="p-row p-total"><span>JAMI</span><b>' + money(r.total_uzs) + '</b></div>' +
+    (Number(r.old_debt_uzs || 0) > 0
+      ? '<div class="p-row"><span>Eski nasiya</span><b>' + money(r.old_debt_uzs) + '</b></div>' +
+        (r.payment_method === 'nasiya'
+          ? '<div class="p-row p-total" style="color:var(--danger)"><span>UMUMIY NASIYA</span><b>' + money(r.total_with_debt_uzs) + '</b></div>'
+          : '<div class="p-row"><span>Qarzingiz (eslatma)</span><b>' + money(r.old_debt_uzs) + '</b></div>')
+      : '') +
     (r.is_cancelled
       ? '<div class="p-cancel">⛔ BEKOR QILINGAN — ' + esc(r.cancelled_by || '') + ', ' + esc(r.cancelled_at || '') +
         (r.cancel_reason ? ' (' + esc(r.cancel_reason) + ')' : '') + '</div>'
@@ -833,19 +910,99 @@ async function renderCustomersTab(el) {
   const month = new Date().toLocaleDateString('sv-SE').slice(0, 7);
   el.innerHTML = d.customers.length
     ? '<div class="table-wrap"><table class="table">' +
-      '<tr><th>Nomi</th><th>Telefon</th><th>Birinchi sotuvchi</th><th>Savdolar</th><th>Jami xarid</th><th>Oxirgi savdo</th><th>Holati</th></tr>' +
+      '<tr><th>Nomi</th><th>Telefon</th><th>Qarz (nasiya)</th><th>Birinchi sotuvchi</th><th>Savdolar</th><th>Jami xarid</th><th>Oxirgi savdo</th><th>Holati</th><th></th></tr>' +
       d.customers.map(c =>
         '<tr>' +
         '<td><b>' + esc(c.name) + '</b></td>' +
         '<td>' + esc(c.phone || '—') + '</td>' +
+        '<td><b' + (c.debt_uzs > 0 ? ' class="debt-red"' : '') + '>' + fmt(c.debt_uzs) + '</b></td>' +
         '<td>' + esc(c.first_seller || '—') + '</td>' +
         '<td>' + c.visits + ' ta</td>' +
         '<td>' + fmt(c.total_spent) + '</td>' +
         '<td class="muted">' + esc(c.last_visit || '—') + '</td>' +
         '<td>' + (c.first_seen && c.first_seen.slice(0, 7) === month ? '<span class="badge b-ok">yangi</span>' : '<span class="badge b-no" style="background:#e5e7eb;color:#6b7280">eski</span>') + '</td>' +
+        '<td><button class="icon-btn" data-hist="' + c.id + '" title="Tarix va qarz">📋</button></td>' +
         '</tr>'
       ).join('') + '</table></div>'
     : '<div class="empty">Xaridorlar yo\'q</div>';
+  el.onclick = e => {
+    const h = e.target.closest('[data-hist]');
+    if (h) openCustomerHistory(+h.dataset.hist, () => renderTab('customers'));
+  };
+}
+
+/* ===== Xaridor tarixi va qarz boshqaruvi (admin) ===== */
+const DEBT_KIND_LABELS = { payment: '✅ Qarz to\'lov', cancel: '⛔ Chek bekor', adjust: '✏️ Tuzatish' };
+
+async function openCustomerHistory(id, onChange) {
+  let d;
+  try { d = await api('/customers/' + id + '/history'); } catch (e) { return toast(e.message); }
+  const c = d.customer;
+  openModal(
+    '<h3>🛍 ' + esc(c.name) + '</h3>' +
+    '<div class="muted sm">' + esc(c.phone || 'telefon yo\'q') +
+    (c.first_seller ? ' • birinchi sotuvchi: ' + esc(c.first_seller) : '') +
+    (c.first_seen ? ' • ' + c.first_seen : '') + '</div>' +
+    '<div class="stat-cards"><div class="scard"><div class="sc-l">Hozirgi qarzi</div>' +
+    '<div class="sc-v"' + (c.debt_uzs > 0 ? ' style="color:var(--danger)"' : '') + '>' + money(c.debt_uzs) + '</div></div></div>' +
+    '<div class="filters">' +
+    '<button class="btn" id="chPay">💰 To\'lov qayd etish</button>' +
+    '<button class="btn ghost" id="chFix">✏️ Qarzni tuzatish</button>' +
+    '</div>' +
+    '<h3 class="sec-t">🧾 Savdo tarixi</h3>' +
+    '<div class="panel" style="max-height:230px;overflow-y:auto">' +
+    (d.sales.length ? d.sales.map(s =>
+      '<div class="li-row' + (s.is_cancelled ? ' row-off' : '') + '"><div><b>' + chekNo(s.id) + '</b> • ' + s.t +
+      '<div class="muted sm">' + esc(s.seller_name) + ' • ' + s.items_count + ' ta • ' + (PAY_LABELS[s.payment_method] || PAY_LABELS.naqd).replace(/^\S+\s/, '') +
+      (s.payment_method === 'nasiya' && s.old_debt_uzs > 0 ? ' • eski nasiya ' + fmt(s.old_debt_uzs) + ' → umumiy ' + fmt(s.old_debt_uzs + s.total_uzs) : '') +
+      (s.is_cancelled ? ' • ⛔ bekor' : '') +
+      '</div></div><b>' + money(s.total_uzs) + '</b></div>'
+    ).join('') : '<div class="muted">Savdo yo\'q</div>') + '</div>' +
+    '<h3 class="sec-t">💰 Qarz harakatlari</h3>' +
+    '<div class="panel" style="max-height:230px;overflow-y:auto">' +
+    (d.payments.length ? d.payments.map(p =>
+      '<div class="li-row"><div><b>' + (DEBT_KIND_LABELS[p.kind] || p.kind) + '</b> • ' + p.t +
+      '<div class="muted sm">' + esc(p.by_name) + (p.note ? ' • ' + esc(p.note) : '') + ' • qoldi: ' + fmt(p.debt_after_uzs) + '</div></div>' +
+      '<b style="color:' + (p.amount_uzs < 0 ? 'var(--acc-d)' : 'var(--danger)') + '">' + (p.amount_uzs > 0 ? '+' : '') + fmt(p.amount_uzs) + '</b></div>'
+    ).join('') : '<div class="muted">Harakat yo\'q</div>') + '</div>' +
+    '<div style="height:12px"></div>' +
+    '<button class="btn ghost big" id="chClose">Yopish</button>'
+  );
+
+  document.getElementById('chClose').onclick = closeModal;
+  document.getElementById('chPay').onclick = async () => {
+    if (c.debt_uzs <= 0) return toast('Bu xaridorning qarzi yo\'q');
+    const amt = await askModal("To'lov summasi (jami qarz: " + fmt(c.debt_uzs) + " so'm)", {
+      input: true, placeholder: "Summa (so'm)", okText: 'Qayd etish'
+    });
+    if (amt === null) return;
+    const amount = parseInt(String(amt).replace(/\s+/g, ''), 10);
+    if (!(amount > 0)) return toast('Summani kiriting');
+    const note = await askModal('Izoh (ixtiyoriy)', { input: true, placeholder: 'Masalan: qisman to\'ladi', okText: 'Saqlash' });
+    if (note === null) return;
+    try {
+      const r = await api('/customers/' + id + '/pay-debt', { method: 'POST', body: { amount, note } });
+      toast("To'lov qayd etildi ✅ Qolgan qarz: " + fmt(r.debt_uzs));
+      openCustomerHistory(id, onChange);
+      if (onChange) onChange();
+    } catch (e) { toast(e.message); }
+  };
+  document.getElementById('chFix').onclick = async () => {
+    const v = await askModal("Qarzning yangi qiymati (hozir: " + fmt(c.debt_uzs) + ")", {
+      input: true, placeholder: "Yangi qarz (so'm)", okText: 'Davom etish'
+    });
+    if (v === null) return;
+    const nd = parseInt(String(v).replace(/\s+/g, ''), 10);
+    if (!isFinite(nd) || nd < 0) return toast('Summa noto\'g\'ri');
+    const reason = await askModal('Tuzatish sababi', { input: true, placeholder: 'Masalan: hisobda xatolik', okText: 'Saqlash' });
+    if (reason === null) return;
+    try {
+      await api('/customers/' + id + '/debt', { method: 'PATCH', body: { debt_uzs: nd, reason } });
+      toast('Tuzatildi ✅');
+      openCustomerHistory(id, onChange);
+      if (onChange) onChange();
+    } catch (e) { toast(e.message); }
+  };
 }
 
 async function renderSettingsTab(el) {
@@ -859,7 +1016,12 @@ async function renderSettingsTab(el) {
     '<label class="lbl">USD kursi (1 dollar = ? so\'m)</label>' +
     '<input class="inp" id="stRate" type="number" min="1" step="0.01" value="' + s.usd_rate + '">' +
     '<div class="hint">Kurs o\'zgarsa, dollarda kiritilgan mahsulotlar narhi shu zahoti yangi kurs bilan hisoblanadi.</div>' +
+    '<label class="lbl">Windows printer nomi (USB XPrinter uchun)</label>' +
+    '<input class="inp" id="stPName" value="' + esc(s.printer_name || '') + '" placeholder="Masalan: XPrinter_58 yoki POS-80">' +
+    '<div class="hint">Do\'kondagi Windows kompyuterda Printers &amp; scanners\'dagi aniq nomi yoziladi. Bo\'sh bo\'lsa agent .env dagi nomni ishlatadi.</div>' +
     '<div style="height:12px"></div>' +
+    '<button class="btn ghost" id="btnPT">🖨 Printer test</button>' +
+    '<div style="height:4px"></div>' +
     '<button class="btn big" id="stSave">Saqlash</button></div>' +
     '<div class="panel"><h3 class="sec-t" style="margin-top:0">Admin parolini o\'zgartirish</h3>' +
     '<label class="lbl">Eski parol</label><input class="inp" id="pwOld" type="password">' +
@@ -874,11 +1036,20 @@ async function renderSettingsTab(el) {
         body: {
           shop_name: document.getElementById('stName').value,
           shop_phone: document.getElementById('stPhone').value,
-          usd_rate: parseFloat(document.getElementById('stRate').value)
+          usd_rate: parseFloat(document.getElementById('stRate').value),
+          printer_name: document.getElementById('stPName').value
         }
       });
       toast('Saqlandi ✅');
     } catch (e) { toast(e.message); }
+  };
+  document.getElementById('btnPT').onclick = async function () {
+    this.disabled = true;
+    try {
+      await api('/printer/test', { method: 'POST' });
+      toast('Test cheki printerga yuborildi 🖨');
+    } catch (e) { toast(e.message); }
+    this.disabled = false;
   };
   document.getElementById('pwSave').onclick = async function () {
     try {
