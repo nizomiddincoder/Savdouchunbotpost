@@ -4,8 +4,14 @@ const { getSettings } = require('./db');
 const clients = new Set();
 
 function printerConfig(st) {
+  let mode = String(st.printer_mode || '').toLowerCase();
+  // Eski bazalarda default 'network'. Host yozilmagan (yoki Windows printer nomi
+  // berilgan) bo'lsa — network rejim baribir ishlamaydi, agentning 'windows'
+  // rejimiga tushiramiz, aks holda agent ulanganda chop etish jim o'chib qoladi.
+  if (!mode || mode === 'network' && !st.printer_host) mode = 'windows';
+  if (st.printer_name && mode === 'network') mode = 'windows';
   return {
-    mode: st.printer_mode || 'network',
+    mode,
     host: st.printer_host || '',
     port: Number(st.printer_port) || 9100,
     share: st.printer_share || '',

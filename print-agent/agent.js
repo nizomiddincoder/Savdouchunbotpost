@@ -339,8 +339,15 @@ async function printBuf(buf, r) {
 function applyConfig(cfg) {
   if (!cfg || typeof cfg !== 'object') return;
   if (cfg.mode) {
-    MODE = String(cfg.mode).toLowerCase();
-    console.log('[PRINT] Printer mode (server config): ' + MODE);
+    let m = String(cfg.mode).toLowerCase();
+    // Server host'siz 'network' rejim yuborsa — bu rejim baribir ishlamaydi
+    // (ulanadigan manzil yo'q). Bunday holda .env dagi 'windows' rejim qoladi.
+    if (m === 'network' && !cfg.host && MODE === 'windows') {
+      console.log('[PRINT] Server network rejimini yubordi, lekin host bo\'sh — windows rejim qoladi');
+    } else {
+      MODE = m;
+      console.log('[PRINT] Printer mode (server config): ' + MODE);
+    }
   }
   if (typeof cfg.printerName === 'string' && cfg.printerName.trim()) {
     PRINTER_NAME = cfg.printerName.trim();
