@@ -402,6 +402,79 @@ function openAddProduct(existing) {
   };
 }
 
+/* ===== Excel import ===== */
+function fileToB64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+function openImportModal() {
+  openModal(
+    '<h3>📥 Excel import</h3>' +
+    '<div class="hint" style="margin-top:0">Ustunlar: <b>Nomi</b>, <b>Narxi</b>, <b>Valyuta</b> (UZS/USD, bo\'sh bo\'lsa so\'m deb olinadi). ' +
+    'Bazada mavjud yoki faylda takrorlangan nomlar o\'tkazib yuboriladi.</div>' +
+    '<div style="height:12px"></div>' +
+    '<button class="btn ghost big" id="impTpl">⬇️ Namuna faylni yuklab olish</button>' +
+    '<label class="lbl">Excel faylni tanlang (.xlsx)</label>' +
+    '<input class="inp" id="impFile" type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">' +
+    '<div id="impStatus" class="hint" hidden></div>' +
+    '<div style="height:12px"></div>' +
+    '<button class="btn big" id="impGo" disabled>Import qilish</button>'
+  );
+
+  let b64 = null;
+  document.getElementById('impTpl').onclick = () => downloadXlsx('/products/import/template.xlsx', 'mahsulot-namuna.xlsx');
+
+  document.getElementById('impFile').onchange = function () {
+    const f = this.files[0];
+    const go = document.getElementById('impGo');
+    b64 = null;
+    go.disabled = true;
+    if (!f) return;
+    const st = document.getElementById('impStatus');
+    st.hidden = false;
+    st.textContent = 'Fayl o\'qilmoqda...';
+    fileToB64(f).then(d => {
+      b64 = d;
+      st.textContent = '✅ "' + f.name + '" tanlandi — "Import qilish" tugmasini bosing';
+      go.disabled = false;
+    }).catch(() => { st.textContent = 'Faylni o\'qib bo\'lmadi'; });
+  };
+
+  document.getElementById('impGo').onclick = async function () {
+    if (!b64) return;
+    this.disabled = true;
+    const st = document.getElementById('impStatus');
+    st.hidden = false;
+    st.textContent = 'Yuklanmoqda...';
+    try {
+      const r = await api('/products/import', { method: 'POST', body: { file_b64: b64 } });
+      st.hidden = true;
+      document.querySelector('#modalRoot .modal').innerHTML =
+        '<h3>📥 Import yakuni</h3>' +
+        '<div class="stat-cards">' +
+        '<div class="scard"><div class="sc-l">Qo\'shildi</div><div class="sc-v" style="color:var(--acc-d)">✅ ' + r.added + '</div></div>' +
+        '<div class="scard"><div class="sc-l">O\'tkazildi</div><div class="sc-v" style="color:var(--muted)">⏭ ' + r.skipped.length + '</div></div>' +
+        '<div class="scard"><div class="sc-l">Xato</div><div class="sc-v" style="color:var(--danger)">❌ ' + r.failed.length + '</div></div>' +
+        '</div>' +
+        ((r.skipped.length || r.failed.length) ?
+          '<div class="panel" style="max-height:200px;overflow-y:auto">' +
+          r.skipped.map(s => '<div class="li-row"><span>' + s.row + '-qator: ' + esc(s.name) + '</span><span class="muted sm">⏭ ' + esc(s.reason) + '</span></div>').join('') +
+          r.failed.map(f => '<div class="li-row"><span>' + f.row + '-qator: ' + esc(f.name) + '</span><span class="muted sm" style="color:var(--danger)">❌ ' + esc(f.reason) + '</span></div>').join('') +
+          '</div>' : '') +
+        '<button class="btn big" id="impOk">Tushundim</button>';
+      document.getElementById('impOk').onclick = () => { closeModal(); renderTab('products'); };
+    } catch (e) {
+      st.textContent = '❌ ' + e.message;
+      this.disabled = false;
+    }
+  };
+}
+
 /* ===== Sotuvchi kabineti ===== */
 async function renderKabinet() {
   let d;
@@ -604,6 +677,7 @@ async function renderProductsTab(el) {
   el.innerHTML =
     '<div class="filters">' +
     '<input class="inp" id="pSearch" style="flex:1;min-width:180px" placeholder="🔍 Qidirish...">' +
+    '<button class="btn ghost" id="btnImport">📥 Excel import</button>' +
     '<button class="btn" id="btnAddProd">＋ Mahsulot</button>' +
     '</div><div class="table-wrap"><table class="table">' +
     '<tr><th></th><th>Nomi</th><th>Narxi</th><th>Valyuta</th><th>So\'mda</th><th>Qo\'shgan</th><th></th></tr>' +
@@ -630,6 +704,7 @@ async function renderProductsTab(el) {
   renderRows();
   document.getElementById('pSearch').oninput = renderRows;
   document.getElementById('btnAddProd').onclick = () => openAddProduct(null);
+  document.getElementById('btnImport').onclick = () => openImportModal();
   document.getElementById('pBody').onclick = async e => {
     const ed = e.target.closest('[data-edit]');
     if (ed) return openAddProduct(d.products.find(p => p.id === +ed.dataset.edit));

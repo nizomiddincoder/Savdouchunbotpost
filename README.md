@@ -72,6 +72,7 @@ Baza: **Railway PostgreSQL**. Rasmlar ham bazada saqlanadi.
 ## Imkoniyatlar
 
 - Mahsulot: rasm + narx (UZS/USD). Sotuvchi ham yangi qo'shadi; **tahrirlash/o'chirish faqat admin**
+- **Excel import (faqat admin):** Mahsulotlar bo'limidagi "📥 Excel import" tugmasi — namuna fayl (.xlsx) yuklab olib to'ldiriladi: ustunlar `Nomi | Narxi | Valyuta (UZS/USD)`. Bazada mavjud yoki faylda takrorlangan nomlar o'tkazib yuborilib, yakunda hisobot chiqadi
 - Bir xil nomli (dubl) mahsulot qo'shib bo'lmaydi
 - USD kursini admin kiritadi — dollardagi mahsulotlar narhi shu zahoti yangi kurs bilan hisoblanadi
 - Chek: do'kon nomi, telefon, ketma-ket raqam, sana/vaqt, sotuvchi, xaridor + **qayta chop etish** tugmasi
