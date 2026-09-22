@@ -96,6 +96,12 @@ async function initDb() {
   await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'naqd'`);
   await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS old_debt_uzs BIGINT NOT NULL DEFAULT 0`);
   await q(`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS base_price_uzs BIGINT`);
+  // Chekdagi telefon raqamlari: sotuvchi telefoni + 2 ta qo'shimcha raqam
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_1 TEXT NOT NULL DEFAULT ''`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_2 TEXT NOT NULL DEFAULT ''`);
+  // Chek yuqorisida chiqadigan sarlavha (dastur nomi)
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_title TEXT NOT NULL DEFAULT 'SAVDO'`);
   // Eski yozuvlarda asosiy narx bo'sh qolmasin
   await q(`UPDATE sale_items SET base_price_uzs = price_uzs WHERE base_price_uzs IS NULL`);
   await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_mode TEXT NOT NULL DEFAULT 'network'`);

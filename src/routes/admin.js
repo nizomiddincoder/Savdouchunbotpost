@@ -24,7 +24,7 @@ async function uniquePin(excludeId) {
 router.get('/sellers', adminOnly, async (req, res, next) => {
   try {
     const { rows } = await q(`
-      SELECT s.id, s.name, s.is_active,
+      SELECT s.id, s.name, s.phone, s.is_active,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_c,
         (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_s,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}) AS month_c,
@@ -32,7 +32,7 @@ router.get('/sellers', adminOnly, async (req, res, next) => {
       FROM sellers s ORDER BY s.name`);
     res.json({
       sellers: rows.map(r => ({
-        id: r.id, name: r.name, is_active: r.is_active,
+        id: r.id, name: r.name, phone: r.phone || '', is_active: r.is_active,
         today_c: Number(r.today_c), today_s: Number(r.today_s),
         month_c: Number(r.month_c), month_s: Number(r.month_s)
       }))
@@ -44,8 +44,9 @@ router.post('/sellers', adminOnly, async (req, res, next) => {
   try {
     const name = String(req.body.name || '').trim().replace(/\s+/g, ' ');
     if (name.length < 2) throw new Error('Sotuvchi ismini kiriting');
+    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 15);
     const pin = await uniquePin();
-    const { rows } = await q('INSERT INTO sellers (name, pin_hash) VALUES ($1, $2) RETURNING id', [name, hashPin(pin)]);
+    const { rows } = await q('INSERT INTO sellers (name, phone, pin_hash) VALUES ($1, $2, $3) RETURNING id', [name, phone, hashPin(pin)]);
     res.json({ id: rows[0].id, pin });
   } catch (e) { next(e); }
 });
@@ -62,6 +63,7 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
   try {
     if (typeof req.body.is_active === 'boolean') await q('UPDATE sellers SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
     if (req.body.name) await q('UPDATE sellers SET name = $1 WHERE id = $2', [String(req.body.name).trim().slice(0, 60), req.params.id]);
+    if (req.body.phone !== undefined) await q('UPDATE sellers SET phone = $1 WHERE id = $2', [String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 15), req.params.id]);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -237,17 +239,20 @@ router.get('/stats/dashboard', adminOnly, async (req, res, next) => {
 router.get('/settings', adminOnly, async (req, res, next) => {
   try {
     const st = await getSettings();
-    res.json({ shop_name: st.shop_name, shop_phone: st.shop_phone, usd_rate: Number(st.usd_rate), printer_name: st.printer_name || '' });
+    res.json({ shop_name: st.shop_name, shop_phone: st.shop_phone, usd_rate: Number(st.usd_rate), printer_name: st.printer_name || '',
+      phone_1: st.phone_1 || '', phone_2: st.phone_2 || '', receipt_title: st.receipt_title || 'SAVDO' });
   } catch (e) { next(e); }
 });
 
 router.put('/settings', adminOnly, async (req, res, next) => {
   try {
-    const { shop_name, shop_phone, usd_rate, printer_name } = req.body;
+    const { shop_name, shop_phone, usd_rate, printer_name, phone_1, phone_2, receipt_title } = req.body;
     if (!(Number(usd_rate) > 0)) throw new Error('USD kursi noto\'g\'ri');
-    await q('UPDATE settings SET shop_name = $1, shop_phone = $2, usd_rate = $3, printer_name = $4 WHERE id = 1',
+    await q('UPDATE settings SET shop_name = $1, shop_phone = $2, usd_rate = $3, printer_name = $4, phone_1 = $5, phone_2 = $6, receipt_title = $7 WHERE id = 1',
       [String(shop_name || '').trim().slice(0, 100) || 'Mening dokoni', String(shop_phone || '').trim().slice(0, 30),
-       usd_rate, String(printer_name || '').trim().slice(0, 120)]);
+       usd_rate, String(printer_name || '').trim().slice(0, 120),
+       String(phone_1 || '').trim().slice(0, 30), String(phone_2 || '').trim().slice(0, 30),
+       (String(receipt_title || '').trim().slice(0, 24).toUpperCase() || 'SAVDO')]);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

@@ -41,8 +41,8 @@ const PS_SCRIPT = path.join(__dirname, 'print-raw.ps1');
 
 // 80mm termal printer Font A: qatorda 48 belgi
 const W = 48;
-// Jadval ustunlari kengliklari (jami 48: 3+17+5+4+9+10)
-const COL_NO = 2, COL_NAME = 17, COL_PACK = 5, COL_QTY = 4, COL_PRICE = 9, COL_SUM = 10;
+// Jadval ustunlari — ustunlar orasida '|' chizig'i turadi (4 ta): 2+18+5+9+10+4 = 48
+const COL_NO = 2, COL_NAME = 18, COL_QTY = 5, COL_PRICE = 9, COL_SUM = 10;
 
 function sanitize(s) {
   return String(s == null ? '' : s)
@@ -96,19 +96,49 @@ function formatMoney(n) { return Math.round(Number(n) || 0).toString().replace(/
 // USD: 130,60 $
 function formatUsd(n) { return (Number(n) || 0).toFixed(2).replace('.', ',') + ' $'; }
 
+// Telefon: 998912041009 / 912041009 -> +998 91 204 10 09
+function formatPhone(v) {
+  let d = String(v || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length === 9) d = '998' + d;
+  if (d.length === 12 && d.startsWith('998')) return '+998 ' + d.slice(3, 5) + ' ' + d.slice(5, 8) + ' ' + d.slice(8, 10) + ' ' + d.slice(10, 12);
+  return '+' + d;
+}
+
+// Sana: '2026-09-16 12:23' -> '16.09.2026 12:23'
+function formatDate(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/);
+  return m ? m[3] + '.' + m[2] + '.' + m[1] + ' ' + m[4] : String(s || '');
+}
+
+// Ustunli jadval qatori: ustunlar orasiga '|' chizig'i qo'yiladi
+function tableRow(cells) {
+  let s = '';
+  cells.forEach((c, i) => {
+    const t = sanitize(String(c.t == null ? '' : c.t));
+    s += c.right ? padLeft(t, c.w) : padRight(t, c.w);
+    if (i < cells.length - 1) s += '|';
+  });
+  return s;
+}
+
 // Jadval qatori: nomi uzun bo'lsa keyingi qatorga ko'chadi, summa ustunlari o'ngga tekislanadi
-function formatReceiptRow(no, name, pack, qty, price, sum) {
+function formatReceiptRow(no, name, qty, price, sum) {
   const nameLines = wrapText(name, COL_NAME);
   const out = [];
   nameLines.forEach((ln, i) => {
-    const prefix = i === 0 ? padRight(no, COL_NO) + ' ' : ' '.repeat(COL_NO + 1);
-    if (i === nameLines.length - 1) {
-      out.push(padRight(prefix + ln, COL_NO + 1 + COL_NAME)
-        + padLeft(pack, COL_PACK) + padLeft(qty, COL_QTY)
-        + padLeft(price, COL_PRICE) + padLeft(sum, COL_SUM));
+    const cells = [
+      { t: i === 0 ? no : '', w: COL_NO },
+      { t: ln, w: COL_NAME }
+    ];
+    if (i === 0) {
+      cells.push({ t: qty, w: COL_QTY, right: true },
+        { t: price, w: COL_PRICE, right: true },
+        { t: sum, w: COL_SUM, right: true });
     } else {
-      out.push(prefix + ln);
+      cells.push({ t: '', w: COL_QTY }, { t: '', w: COL_PRICE }, { t: '', w: COL_SUM });
     }
+    out.push(tableRow(cells));
   });
   return out;
 }
@@ -134,6 +164,15 @@ function buildEscpos(r, reprint) {
   const sep = () => { text('-'.repeat(W)); nl(); };
   const sep2 = () => { text('='.repeat(W)); nl(); };
   const bold = on => push(0x1b, 0x45, on ? 1 : 0);
+  // Ikki ustunli sarlavha qatori: chap + o'ng (eski dastur chekidagidek)
+  const twoCol = (l, rt, lw) => {
+    lw = lw || 25;
+    l = sanitize(l); rt = sanitize(rt);
+    if (l.length > lw) l = l.slice(0, lw - 3) + '...';
+    if (rt.length > W - lw) rt = rt.slice(0, W - lw - 3) + '...';
+    text(l + ' '.repeat(Math.max(1, W - l.length - rt.length)) + rt);
+    nl();
+  };
   // "Манзил: ..." kabi maydon — bo'sh bo'lsa chop etilmaydi, uzun qiymat qatorga bo'linadi
   const field = (label, value) => {
     if (value === undefined || value === null || String(value).trim() === '') return;
@@ -151,32 +190,43 @@ function buildEscpos(r, reprint) {
   push(0x1b, 0x32);            // standart qator orasi
 
   // === HEADER ===
+  // Yuqorida DASTUR NOMI chiqadi (admin panel > Sozlamalar > Chek sarlavhasi)
   push(0x1b, 0x61, 0x01);      // center
   bold(1); push(0x1d, 0x21, 0x11); // bold + ikki barobar shrift
-  center(r.shop_name || 'MEXMASH', 24);
+  center(r.receipt_title || 'SAVDO', 24);
   push(0x1d, 0x21, 0x00); bold(0);
-  if (r.shop_phone) center(r.shop_phone);
+  // Ikkita aloqador telefon — sarlavha ostida yonma-yon (mijoz shularga qo'ng'iroq qiladi)
+  const tel1 = formatPhone(r.shop_phone || r.phone_1);
+  const tel2 = formatPhone(r.phone_2);
+  if (tel1 && tel2) twoCol(tel1, tel2, 23);
+  else if (tel1) center(tel1);
+  else if (tel2) center(tel2);
   push(0x1b, 0x61, 0x00);      // left
   sep();
-  field('Чек №', r.receipt_no != null ? ('Ср-' + String(r.receipt_no).padStart(6, '0')) : '');
-  field('Сана', r.datetime_local);
-  field('Сотувчи', r.seller_name);
-  field('Харидор', r.customer_name);
-  field('Тел', r.customer_phone);
-  if (Number(r.old_debt_uzs) > 0) field('Ески карз', formatMoney(r.old_debt_uzs));
+  // Ikki ustunli ma'lumot bloki
+  twoCol('Чек №' + (r.receipt_no != null ? 'Ср-' + String(r.receipt_no).padStart(6, '0') : ''),
+    'Сана: ' + formatDate(r.datetime_local));
+  if (Number(r.usd_rate) > 0) twoCol('', '$ : ' + formatMoney(r.usd_rate));
+  const selTel = formatPhone(r.seller_phone);
+  twoCol('Сотувчи: ' + r.seller_name, selTel ? 'Тел: ' + selTel : '');
+  const custTel = formatPhone(r.customer_phone);
+  twoCol('Харидор: ' + r.customer_name, custTel ? 'Тел: ' + custTel : '');
   field('Манзил', r.customer_address);
   field('Мулжал', r.customer_landmark);
   sep();
 
-  // === MAHSULOTLAR JADVALI ===
-  text(padRight('№', COL_NO) + ' ' + padRight('Номи', COL_NAME)
-    + padRight('Упак', COL_PACK) + padLeft('Сони', COL_QTY)
-    + padLeft('Нархи', COL_PRICE) + padLeft('Сумма', COL_SUM));
+  // === MAHSULOTLAR JADVALI — ustunlar '|' chizig'i bilan ajratilgan ===
+  text(tableRow([
+    { t: '№', w: COL_NO },
+    { t: 'Номи', w: COL_NAME },
+    { t: 'Сони', w: COL_QTY, right: true },
+    { t: 'Нархи', w: COL_PRICE, right: true },
+    { t: 'Сумма', w: COL_SUM, right: true }
+  ]));
   nl();
   text('-'.repeat(W)); nl();
   (r.items || []).forEach((it, idx) => {
-    for (const ln of formatReceiptRow(String(idx + 1), it.name,
-      it.pack_qty != null ? String(it.pack_qty) : '',
+    for (const ln of formatReceiptRow((idx + 1) + '.', it.name,
       formatMoney(it.qty), formatMoney(it.price_uzs), formatMoney(it.line_total_uzs))) {
       text(ln); nl();
     }
@@ -236,7 +286,7 @@ function buildTestReceipt() {
   push(0x1b, 0x32);           // qator orasi
   center('='.repeat(31));
   push(0x1d, 0x21, 0x11);     // ikki barobar shrift
-  center('MEXMASH', 24);
+  center(process.env.RECEIPT_TITLE || 'SAVDO', 24);
   center('PRINTER TEST', 24);
   push(0x1d, 0x21, 0x00);
   center('='.repeat(31));
@@ -339,8 +389,15 @@ async function printBuf(buf, r) {
 function applyConfig(cfg) {
   if (!cfg || typeof cfg !== 'object') return;
   if (cfg.mode) {
-    MODE = String(cfg.mode).toLowerCase();
-    console.log('[PRINT] Printer mode (server config): ' + MODE);
+    let m = String(cfg.mode).toLowerCase();
+    // Server host'siz 'network' rejim yuborsa — bu rejim baribir ishlamaydi
+    // (ulanadigan manzil yo'q). Bunday holda .env dagi 'windows' rejim qoladi.
+    if (m === 'network' && !cfg.host && MODE === 'windows') {
+      console.log('[PRINT] Server network rejimini yubordi, lekin host bo\'sh — windows rejim qoladi');
+    } else {
+      MODE = m;
+      console.log('[PRINT] Printer mode (server config): ' + MODE);
+    }
   }
   if (typeof cfg.printerName === 'string' && cfg.printerName.trim()) {
     PRINTER_NAME = cfg.printerName.trim();
@@ -385,13 +442,29 @@ function connect() {
 }
 
 /* Test chop: node agent.js --test */
-if (process.argv.includes('--test')) {
-  console.log('[PRINT] Test chek yuborilmoqda...');
-  console.log('[PRINT] Paper width: 80mm');
-  console.log('[PRINT] Printer: ' + PRINTER_NAME);
-  printBuf(buildTestReceipt(), { receipt_no: 'TEST' }).then(() => process.exit(0));
+if (require.main === module) {
+  if (process.argv.includes('--test')) {
+    console.log('[PRINT] Test chek yuborilmoqda...');
+    console.log('[PRINT] Paper width: 80mm');
+    console.log('[PRINT] Printer: ' + PRINTER_NAME);
+    printBuf(buildTestReceipt(), { receipt_no: 'TEST' }).then(() => process.exit(0));
+  } else {
+    console.log('[PRINT] Printer mode: ' + MODE);
+    console.log('[PRINT] Printer: ' + PRINTER_NAME);
+    // Bir vaqtda ikki nusxa ishlamasin — aks holda har chek ikki marta chop etiladi.
+    // Lokal portni "qulflash" orqali tekshiramiz: port band bo'lsa, demak agent allaqachon yoniq.
+    const LOCK_PORT = parseInt(process.env.AGENT_LOCK_PORT || '47811', 10);
+    const lock = net.createServer();
+    lock.on('error', () => {
+      console.log('[PRINT] Agent allaqachon ishlayapti — bu nusxa yopiladi.');
+      process.exit(42); // 42 = "boshqa nusxa bor" — bat fayl buni tanib, qayta urinmaydi
+    });
+    lock.listen(LOCK_PORT, '127.0.0.1', () => {
+      console.log('[PRINT] Agent yagona nusxa sifatida ishga tushdi');
+      connect();
+    });
+  }
 } else {
-  console.log('[PRINT] Printer mode: ' + MODE);
-  console.log('[PRINT] Printer: ' + PRINTER_NAME);
-  connect();
+  // Modul sifatida chaqirilganda (dizaynni tekshirish uchun)
+  module.exports = { buildEscpos, buildTestReceipt };
 }

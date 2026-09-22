@@ -9,7 +9,7 @@ const adminOnly = middleware('admin');
 const TZ = 'Asia/Tashkent';
 
 async function buildReceipt(saleId) {
-  const { rows } = await q(`SELECT s.*, sel.name AS seller_name, c.phone AS customer_phone
+  const { rows } = await q(`SELECT s.*, sel.name AS seller_name, sel.phone AS seller_phone, c.phone AS customer_phone
     FROM sales s JOIN sellers sel ON sel.id = s.seller_id
     LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = $1`, [saleId]);
   const s = rows[0];
@@ -19,10 +19,14 @@ async function buildReceipt(saleId) {
   const dt = new Date(s.created_at).toLocaleString('sv-SE', { timeZone: TZ }).replace('T', ' ').slice(0, 16);
   return {
     receipt_no: s.id,
+    receipt_title: st.receipt_title || 'SAVDO',
     shop_name: st.shop_name,
     shop_phone: st.shop_phone,
+    phone_1: st.phone_1 || null,
+    phone_2: st.phone_2 || null,
     datetime_local: dt,
     seller_name: s.seller_name,
+    seller_phone: s.seller_phone || null,
     customer_name: s.customer_name,
     customer_phone: s.customer_phone || null,
     payment_method: s.payment_method || 'naqd',

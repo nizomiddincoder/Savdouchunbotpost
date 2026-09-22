@@ -860,10 +860,11 @@ async function renderSellersTab(el) {
   el.innerHTML =
     '<div class="filters"><button class="btn" id="btnAddSeller">＋ Sotuvchi</button></div>' +
     '<div class="table-wrap"><table class="table">' +
-    '<tr><th>Ism</th><th>Bugun</th><th>Bu oy</th><th>Holat</th><th></th></tr>' +
+    '<tr><th>Ism</th><th>Тел</th><th>Bugun</th><th>Bu oy</th><th>Holat</th><th></th></tr>' +
     d.sellers.map(s =>
       '<tr class="' + (s.is_active ? '' : 'row-off') + '">' +
       '<td><b>' + esc(s.name) + '</b></td>' +
+      '<td>' + esc(s.phone || '') + ' <button class="icon-btn" data-ph="' + s.id + '" data-cur="' + esc(s.phone || '') + '" title="Telefonni yozish/o\'zgartirish">✏️</button></td>' +
       '<td>' + s.today_c + ' ta / ' + fmt(s.today_s) + '</td>' +
       '<td>' + s.month_c + ' ta / ' + fmt(s.month_s) + '</td>' +
       '<td>' + (s.is_active ? '<span class="badge b-ok">faol</span>' : '<span class="badge b-no">bloklangan</span>') + '</td>' +
@@ -875,15 +876,27 @@ async function renderSellersTab(el) {
     (d.sellers.length ? '' : '<div class="empty">Sotuvchi yo\'q — birinchisini qo\'shing</div>');
 
   document.getElementById('btnAddSeller').onclick = async () => {
-    const name = await askModal('Yangi sotuvchi ismi', { input: true, placeholder: 'Masalan: Aziz', okText: 'Yaratish' });
+    const name = await askModal('Yangi sotuvchi ismi', { input: true, placeholder: 'Masalan: Aziz', okText: 'Keyingi' });
     if (!name) return;
+    const phone = await askModal('Sotuvchi telefoni (chekda chiqadi)', { input: true, placeholder: 'Masalan: 901234567', okText: 'Yaratish' });
     try {
-      const r = await api('/sellers', { method: 'POST', body: { name } });
+      const r = await api('/sellers', { method: 'POST', body: { name, phone: phone || '' } });
       openPinModal(r.pin, name + ' — PIN kodi');
       renderTab('sellers');
     } catch (e) { toast(e.message); }
   };
   el.onclick = async e => {
+    const ph = e.target.closest('[data-ph]');
+    if (ph) {
+      const phone = await askModal('Sotuvchi telefoni (chekda chiqadi)', { input: true, placeholder: ph.dataset.cur || 'Masalan: 901234567', okText: 'Saqlash' });
+      if (phone === null) return;
+      try {
+        await api('/sellers/' + ph.dataset.ph, { method: 'PATCH', body: { phone } });
+        toast('Telefon saqlandi');
+        renderTab('sellers');
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const pn = e.target.closest('[data-pin]');
     if (pn) {
       if (await askModal('PIN almashtirilsin mi?')) {
@@ -1009,10 +1022,15 @@ async function renderSettingsTab(el) {
   const s = await api('/settings');
   el.innerHTML =
     '<div class="panel"><h3 class="sec-t" style="margin-top:0">Do\'kon sozlamalari</h3>' +
-    '<label class="lbl">Do\'kon nomi (chekda chiqadi)</label>' +
+    '<label class="lbl">Chek sarlavhasi (chek yuqorisida katta harflar bilan chiqadi)</label>' +
+    '<input class="inp" id="stTitle" value="' + esc(s.receipt_title || 'SAVDO') + '" placeholder="SAVDO">' +
+    '<label class="lbl">Do\'kon nomi</label>' +
     '<input class="inp" id="stName" value="' + esc(s.shop_name) + '">' +
-    '<label class="lbl">Telefon (chekda chiqadi)</label>' +
-    '<input class="inp" id="stPhone" value="' + esc(s.shop_phone) + '">' +
+    '<label class="lbl">Telefon 1 (chek yuqorisida chiqadi)</label>' +
+    '<input class="inp" id="stPhone" value="' + esc(s.shop_phone) + '" placeholder="Masalan: 901234567">' +
+    '<label class="lbl">Telefon 2 (chek yuqorisida chiqadi)</label>' +
+    '<input class="inp" id="stPhone2" value="' + esc(s.phone_2 || '') + '" placeholder="Masalan: 937654321">' +
+    '<div class="hint">Bu ikki raqam mijoz qo\'ng\'iroq qilishi uchun chekka yoziladi. Sotuvchining o\'z raqami Sotuvchilar bo\'limidan yoziladi.</div>' +
     '<label class="lbl">USD kursi (1 dollar = ? so\'m)</label>' +
     '<input class="inp" id="stRate" type="number" min="1" step="0.01" value="' + s.usd_rate + '">' +
     '<div class="hint">Kurs o\'zgarsa, dollarda kiritilgan mahsulotlar narhi shu zahoti yangi kurs bilan hisoblanadi.</div>' +
@@ -1034,8 +1052,10 @@ async function renderSettingsTab(el) {
       await api('/settings', {
         method: 'PUT',
         body: {
+          receipt_title: document.getElementById('stTitle').value,
           shop_name: document.getElementById('stName').value,
           shop_phone: document.getElementById('stPhone').value,
+          phone_2: document.getElementById('stPhone2').value,
           usd_rate: parseFloat(document.getElementById('stRate').value),
           printer_name: document.getElementById('stPName').value
         }
