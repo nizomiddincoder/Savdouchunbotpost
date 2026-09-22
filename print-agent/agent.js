@@ -76,6 +76,7 @@ function buildEscpos(r, reprint) {
   lr('Chek #' + String(r.receipt_no).padStart(6, '0'), sanitize(r.datetime_local || '').slice(0, 16));
   text('Sotuvchi: ' + (r.seller_name || '')); nl();
   text('Xaridor: ' + (r.customer_name || '')); nl();
+  if (r.customer_phone) { text('Tel: ' + r.customer_phone); nl(); }
   sep();
   for (const it of (r.items || [])) {
     for (const ln of wrap(it.name, W)) { text(ln); nl(); }
@@ -83,6 +84,7 @@ function buildEscpos(r, reprint) {
   }
   sep();
   bold(1); lr('JAMI:', fmt(r.total_uzs) + " so'm"); bold(0);
+  text('Tolov: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
   if (r.is_cancelled) {
     bold(1); push(0x1b, 0x61, 0x01); center('*** BEKOR QILINGAN ***'); push(0x1b, 0x61, 0x00); bold(0);
   }

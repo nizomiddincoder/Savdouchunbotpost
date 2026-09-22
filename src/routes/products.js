@@ -96,6 +96,14 @@ router.delete('/:id', adminOnly, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Barcha mahsulotlarni ommaviy o'chirish — faqat admin (savdo tarixi saqlanadi)
+router.delete('/', adminOnly, async (req, res, next) => {
+  try {
+    const { rows } = await q('UPDATE products SET is_deleted = true WHERE is_deleted = false RETURNING id');
+    res.json({ ok: true, deleted: rows.length });
+  } catch (e) { next(e); }
+});
+
 /* ================= Excel import ================= */
 // Excel katakchasidagi turli qiymat turlarini oddiy matnga aylantiramiz
 function cellText(v) {

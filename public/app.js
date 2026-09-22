@@ -18,6 +18,7 @@ function esc(s) {
 function fmt(n) { return Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
 function money(n) { return fmt(n) + " so'm"; }
 function chekNo(n) { return '#' + String(n).padStart(6, '0'); }
+const PAY_LABELS = { naqd: '💵 Naqd', karta: '💳 Plastik karta', nasiya: '📕 Nasiya' };
 
 let toastT;
 function toast(msg) {
@@ -255,6 +256,7 @@ async function openCart() {
   const items = cartItems();
   if (!items.length) return;
   await ensureCustNames();
+  let pay = 'naqd';
   openModal(
     '<h3>🛒 Savat</h3>' +
     '<div id="cartList">' + items.map(it =>
@@ -266,10 +268,32 @@ async function openCart() {
     ).join('') + '</div>' +
     '<label class="lbl">Xaridor ismi *</label>' +
     '<input id="custName" class="inp" list="custList" placeholder="Masalan: Aziz" autocomplete="off">' +
-    '<datalist id="custList">' + (custNames || []).map(n => '<option value="' + esc(n) + '">').join('') + '</datalist>' +
+    '<datalist id="custList">' + (custNames || []).map(c => '<option value="' + esc(c.name) + '"' + (c.phone ? ' label="' + esc(c.phone) + '"' : '') + '>').join('') + '</datalist>' +
+    '<label class="lbl">Telefon (ixtiyoriy — eski xaridor tanlansa o\'zi chiqadi)</label>' +
+    '<input id="custPhone" class="inp" type="tel" placeholder="Masalan: 90 123 45 67" autocomplete="off">' +
+    '<label class="lbl">To\'lov usuli</label>' +
+    '<div class="pay-select" id="paySel">' +
+    Object.keys(PAY_LABELS).map(k => '<button type="button" class="pay-btn' + (k === 'naqd' ? ' on' : '') + '" data-pay="' + k + '">' + PAY_LABELS[k] + '</button>').join('') +
+    '</div>' +
     '<div class="total-row"><span>Jami:</span><b id="cartTotalEl">' + money(cartTotal()) + '</b></div>' +
     '<button class="btn big" id="btnSell">✅ Sotish</button>'
   );
+
+  const nameInp = document.getElementById('custName');
+  const phoneInp = document.getElementById('custPhone');
+  let phoneAuto = false;
+  nameInp.oninput = () => {
+    const qv = nameInp.value.trim().toLowerCase();
+    const m = (custNames || []).find(c => c.name.toLowerCase() === qv);
+    if (m && m.phone) { phoneInp.value = m.phone; phoneAuto = true; }
+    else if (phoneAuto) { phoneInp.value = ''; phoneAuto = false; }
+  };
+  document.getElementById('paySel').onclick = e => {
+    const b = e.target.closest('.pay-btn');
+    if (!b) return;
+    pay = b.dataset.pay;
+    document.querySelectorAll('#paySel .pay-btn').forEach(x => x.classList.toggle('on', x === b));
+  };
 
   document.getElementById('cartList').onclick = e => {
     const b = e.target.closest('.qbtn');
@@ -290,16 +314,22 @@ async function openCart() {
   };
 
   document.getElementById('btnSell').onclick = async function () {
-    const cname = document.getElementById('custName').value.trim();
+    const cname = nameInp.value.trim();
     if (!cname) return toast('Xaridor ismini kiriting');
     if (!Object.keys(cart).length) return;
     this.disabled = true;
     try {
       const d = await api('/sales', {
         method: 'POST',
-        body: { items: Object.keys(cart).map(k => ({ product_id: +k, qty: cart[k] })), customer_name: cname }
+        body: {
+          items: Object.keys(cart).map(k => ({ product_id: +k, qty: cart[k] })),
+          customer_name: cname,
+          customer_phone: phoneInp.value.trim(),
+          payment_method: pay
+        }
       });
       cart = {};
+      custNames = null;
       updateCartBar();
       openSuccess(d.receipt);
     } catch (e) {
@@ -506,7 +536,7 @@ function sellerSaleRow(s) {
   return (
     '<div class="li-row' + (s.is_cancelled ? ' row-off' : '') + '">' +
     '<div><b>' + chekNo(s.id) + '</b> • ' + esc(s.customer_name) +
-    '<div class="muted sm">' + s.created_at + ' • ' + s.items_count + ' ta mahsulot' +
+    '<div class="muted sm">' + s.created_at + ' • ' + s.items_count + ' ta mahsulot • ' + (PAY_LABELS[s.payment_method] || PAY_LABELS.naqd).replace(/^\S+\s/, '') +
     (s.is_cancelled ? ' • ⛔ ' + esc(s.cancelled_by || '') + ' bekor qilgan' : '') +
     '</div></div>' +
     '<div style="text-align:right"><b>' + money(s.total_uzs) + '</b><div class="acts">' +
@@ -529,6 +559,8 @@ async function receiptModal(id) {
     '<div class="p-row"><span>Chek ' + chekNo(r.receipt_no) + '</span><span>' + esc(r.datetime_local) + '</span></div>' +
     '<div class="p-row"><span>Sotuvchi</span><b>' + esc(r.seller_name) + '</b></div>' +
     '<div class="p-row"><span>Xaridor</span><b>' + esc(r.customer_name) + '</b></div>' +
+    (r.customer_phone ? '<div class="p-row"><span>Telefon</span><b>' + esc(r.customer_phone) + '</b></div>' : '') +
+    '<div class="p-row"><span>To\'lov</span><b>' + esc((PAY_LABELS[r.payment_method] || PAY_LABELS.naqd).replace(/^\S+\s/, '')) + '</b></div>' +
     '<div class="p-sep"></div>' +
     r.items.map(i => '<div class="p-item"><span>' + esc(i.name) + ' ×' + i.qty + '</span><span>' + fmt(i.line_total_uzs) + '</span></div>').join('') +
     '<div class="p-sep"></div>' +
@@ -648,11 +680,11 @@ async function renderSalesTab(el) {
     if (document.getElementById('fSeller').value) params.set('seller_id', document.getElementById('fSeller').value);
     const d = await api('/sales?' + params.toString());
     box.innerHTML = d.sales.length
-      ? '<div class="table-wrap"><table class="table"><tr><th>Chek</th><th>Vaqt</th><th>Sotuvchi</th><th>Xaridor</th><th>Mahsulot</th><th>Summa</th><th>Holat</th><th></th></tr>' +
+      ? '<div class="table-wrap"><table class="table"><tr><th>Chek</th><th>Vaqt</th><th>Sotuvchi</th><th>Xaridor</th><th>Mahsulot</th><th>To\'lov</th><th>Summa</th><th>Holat</th><th></th></tr>' +
         d.sales.map(s =>
           '<tr class="' + (s.is_cancelled ? 'row-off' : '') + '">' +
           '<td><b>' + chekNo(s.id) + '</b></td><td>' + s.created_at + '</td><td>' + esc(s.seller_name) + '</td><td>' + esc(s.customer_name) + '</td>' +
-          '<td>' + s.items_count + ' ta</td><td><b>' + fmt(s.total_uzs) + '</b></td>' +
+          '<td>' + s.items_count + ' ta</td><td>' + esc((PAY_LABELS[s.payment_method] || PAY_LABELS.naqd).replace(/^\S+\s/, '')) + '</td><td><b>' + fmt(s.total_uzs) + '</b></td>' +
           '<td>' + (s.is_cancelled ? '<span class="badge b-no">bekor</span>' : '<span class="badge b-ok">sotilgan</span>') + '</td>' +
           '<td><div class="acts">' +
           '<button class="icon-btn" data-view="' + s.id + '" title="Ko\'rish">👁</button>' +
@@ -679,6 +711,7 @@ async function renderProductsTab(el) {
     '<input class="inp" id="pSearch" style="flex:1;min-width:180px" placeholder="🔍 Qidirish...">' +
     '<button class="btn ghost" id="btnImport">📥 Excel import</button>' +
     '<button class="btn" id="btnAddProd">＋ Mahsulot</button>' +
+    '<button class="btn danger" id="btnDelAll">🗑 Hammasini o\'chirish</button>' +
     '</div><div class="table-wrap"><table class="table">' +
     '<tr><th></th><th>Nomi</th><th>Narxi</th><th>Valyuta</th><th>So\'mda</th><th>Qo\'shgan</th><th></th></tr>' +
     '<tbody id="pBody"></tbody></table></div>';
@@ -705,6 +738,18 @@ async function renderProductsTab(el) {
   document.getElementById('pSearch').oninput = renderRows;
   document.getElementById('btnAddProd').onclick = () => openAddProduct(null);
   document.getElementById('btnImport').onclick = () => openImportModal();
+  document.getElementById('btnDelAll').onclick = async () => {
+    const w = await askModal('⚠️ BARCHA mahsulotlar o\'chiriladi!', {
+      input: true, placeholder: 'Tasdiqlash uchun OCHIR deb yozing', okText: 'O\'chirish', danger: true
+    });
+    if (w === null) return;
+    if (w !== 'OCHIR') return toast('Tasdiqlash so\'zi xato — bekor qilindi');
+    try {
+      const r = await api('/products', { method: 'DELETE' });
+      toast(r.deleted + ' ta mahsulot o\'chirildi');
+      renderTab('products');
+    } catch (e) { toast(e.message); }
+  };
   document.getElementById('pBody').onclick = async e => {
     const ed = e.target.closest('[data-edit]');
     if (ed) return openAddProduct(d.products.find(p => p.id === +ed.dataset.edit));
@@ -788,10 +833,11 @@ async function renderCustomersTab(el) {
   const month = new Date().toLocaleDateString('sv-SE').slice(0, 7);
   el.innerHTML = d.customers.length
     ? '<div class="table-wrap"><table class="table">' +
-      '<tr><th>Nomi</th><th>Birinchi sotuvchi</th><th>Savdolar</th><th>Jami xarid</th><th>Oxirgi savdo</th><th>Holati</th></tr>' +
+      '<tr><th>Nomi</th><th>Telefon</th><th>Birinchi sotuvchi</th><th>Savdolar</th><th>Jami xarid</th><th>Oxirgi savdo</th><th>Holati</th></tr>' +
       d.customers.map(c =>
         '<tr>' +
         '<td><b>' + esc(c.name) + '</b></td>' +
+        '<td>' + esc(c.phone || '—') + '</td>' +
         '<td>' + esc(c.first_seller || '—') + '</td>' +
         '<td>' + c.visits + ' ta</td>' +
         '<td>' + fmt(c.total_spent) + '</td>' +

@@ -77,6 +77,9 @@ async function initDb() {
       line_total_uzs BIGINT NOT NULL
     );
   `);
+  // Migratsiyalar (eski bazalar uchun ham ishlaydi)
+  await q(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'naqd'`);
   // Bir xil nomli mahsulot/xaridor takrorlanmasligi uchun
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS products_norm_uniq
     ON products (lower(btrim(regexp_replace(name, '\\s+', ' ', 'g')))) WHERE is_deleted = false`);

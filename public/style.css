@@ -116,6 +116,14 @@ input, select { font: inherit; }
 .prev-img { max-width: 140px; max-height: 140px; border-radius: 10px; margin-top: 8px; display: block; }
 .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 
+/* To'lov usuli tanlash */
+.pay-select { display: flex; gap: 6px; }
+.pay-btn {
+  flex: 1; padding: 10px 4px; border-radius: 10px; background: #f3f4f6;
+  border: 1.5px solid var(--line); font-weight: 600; font-size: 13px; white-space: nowrap;
+}
+.pay-btn.on { background: var(--acc); color: #fff; border-color: var(--acc); }
+
 /* Login */
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .login-card {

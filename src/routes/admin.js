@@ -70,7 +70,7 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
 router.get('/customers', adminOnly, async (req, res, next) => {
   try {
     const { rows } = await q(`
-      SELECT c.id, c.name, s.name AS first_seller,
+      SELECT c.id, c.name, c.phone, s.name AS first_seller,
         to_char((c.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD') AS first_seen,
         count(v.id) FILTER (WHERE v.is_cancelled = false) AS visits,
         coalesce(sum(v.total_uzs) FILTER (WHERE v.is_cancelled = false), 0) AS total_spent,
@@ -78,12 +78,12 @@ router.get('/customers', adminOnly, async (req, res, next) => {
       FROM customers c
       LEFT JOIN sellers s ON s.id = c.first_seller_id
       LEFT JOIN sales v ON v.customer_id = c.id
-      GROUP BY c.id, c.name, s.name, c.created_at
+      GROUP BY c.id, c.name, c.phone, s.name, c.created_at
       ORDER BY max(v.created_at) DESC NULLS LAST
       LIMIT 500`);
     res.json({
       customers: rows.map(r => ({
-        id: r.id, name: r.name, first_seller: r.first_seller, first_seen: r.first_seen,
+        id: r.id, name: r.name, phone: r.phone, first_seller: r.first_seller, first_seen: r.first_seen,
         visits: Number(r.visits), total_spent: Number(r.total_spent), last_visit: r.last_visit
       }))
     });
@@ -92,8 +92,8 @@ router.get('/customers', adminOnly, async (req, res, next) => {
 
 router.get('/customers/names', anyAuth, async (req, res, next) => {
   try {
-    const { rows } = await q('SELECT name FROM customers ORDER BY created_at DESC LIMIT 300');
-    res.json({ names: rows.map(r => r.name) });
+    const { rows } = await q('SELECT name, phone FROM customers ORDER BY created_at DESC LIMIT 300');
+    res.json({ names: rows.map(r => ({ name: r.name, phone: r.phone })) });
   } catch (e) { next(e); }
 });
 

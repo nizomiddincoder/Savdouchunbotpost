@@ -68,13 +68,15 @@ function initBot() {
 async function notifySale(r) {
   if (!process.env.BOT_TOKEN || !groupChatId) return;
   const lines = r.items.map(i => `• ${i.name} ×${i.qty} — ${fmtUz(i.line_total_uzs)} so'm`).join('\n');
+  const pay = { naqd: '💵 Naqd', karta: '💳 Plastik karta', nasiya: '📕 Nasiya' }[r.payment_method] || '💵 Naqd';
   await tg('sendMessage', {
     chat_id: groupChatId,
     text: `🧾 Chek #${String(r.receipt_no).padStart(6, '0')}\n` +
       `🕒 ${r.datetime_local}\n` +
       `👤 Sotuvchi: ${r.seller_name}\n` +
       `🛍 Xaridor: ${r.customer_name}\n${lines}\n` +
-      `💰 Jami: ${fmtUz(r.total_uzs)} so'm`
+      `💰 Jami: ${fmtUz(r.total_uzs)} so'm\n` +
+      `${pay}`
   });
 }
 
