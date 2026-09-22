@@ -32,9 +32,9 @@ const TOKEN = process.env.AGENT_TOKEN || 'savdo-agent-token';
 // istalgan vaqtda yangilashi mumkin (agentni qayta yozish shart emas).
 let MODE = (process.env.PRINTER_MODE || 'windows').toLowerCase();     // windows | network | share | console
 <<<<<<< HEAD
-let PRINTER_NAME = process.env.PRINTER_NAME || 'XPrinter XP-58';      // Windows'dagi printer nomi
+let PRINTER_NAME = process.env.PRINTER_NAME || 'POSPrinter POS-80C';      // Windows'dagi printer nomi
 =======
-let PRINTER_NAME = process.env.PRINTER_NAME || '';                    // Windows'dagi printer nomi (bo'sh joy bo'lsa ham bo'ladi)
+let PRINTER_NAME = process.env.PRINTER_NAME || 'POSPrinter POS-80C';                    // Windows'dagi printer nomi (bo'sh joy bo'lsa ham bo'ladi)
 >>>>>>> b0680c9d51eca093b33b00b2a70ce6e9011466ba
 const HOST0 = process.env.PRINTER_HOST || '192.168.1.50';
 let PORT = parseInt(process.env.PRINTER_PORT || '9100', 10);
