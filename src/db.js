@@ -80,6 +80,10 @@ async function initDb() {
   // Migratsiyalar (eski bazalar uchun ham ishlaydi)
   await q(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone TEXT`);
   await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'naqd'`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_mode TEXT NOT NULL DEFAULT 'network'`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_host TEXT NOT NULL DEFAULT ''`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_port INT NOT NULL DEFAULT 9100`);
+  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS printer_share TEXT NOT NULL DEFAULT ''`);
   // Bir xil nomli mahsulot/xaridor takrorlanmasligi uchun
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS products_norm_uniq
     ON products (lower(btrim(regexp_replace(name, '\\s+', ' ', 'g')))) WHERE is_deleted = false`);
