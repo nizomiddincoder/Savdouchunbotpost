@@ -117,3 +117,5 @@ async function initDb() {
 }
 
 module.exports = { pool, q, getSettings, initDb, isDbReady };
+PRINTER_MODE=windows
+PRINTER_NAME=POSPrinter POS-80C
