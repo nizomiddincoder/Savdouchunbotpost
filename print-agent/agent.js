@@ -204,24 +204,24 @@ function buildEscpos(r, reprint) {
   push(0x1b, 0x61, 0x00);      // left
   sep();
   // Ikki ustunli ma'lumot bloki
-  twoCol('Чек №' + (r.receipt_no != null ? 'Ср-' + String(r.receipt_no).padStart(6, '0') : ''),
+  twoCol('Chek №' + (r.receipt_no != null ? 'Ср-' + String(r.receipt_no).padStart(6, '0') : ''),
     'Сана: ' + formatDate(r.datetime_local));
   if (Number(r.usd_rate) > 0) twoCol('', '$ : ' + formatMoney(r.usd_rate));
   const selTel = formatPhone(r.seller_phone);
-  twoCol('Сотувчи: ' + r.seller_name, selTel ? 'Тел: ' + selTel : '');
+  twoCol('Sotuvchi: ' + r.seller_name, selTel ? 'Tel: ' + selTel : '');
   const custTel = formatPhone(r.customer_phone);
-  twoCol('Харидор: ' + r.customer_name, custTel ? 'Тел: ' + custTel : '');
-  field('Манзил', r.customer_address);
-  field('Мулжал', r.customer_landmark);
+  twoCol('Xaridor: ' + r.customer_name, custTel ? 'Tel: ' + custTel : '');
+  field('Manzil', r.customer_address);
+  field('Mo`ljall', r.customer_landmark);
   sep();
 
   // === MAHSULOTLAR JADVALI — ustunlar '|' chizig'i bilan ajratilgan ===
   text(tableRow([
     { t: '№', w: COL_NO },
-    { t: 'Номи', w: COL_NAME },
-    { t: 'Сони', w: COL_QTY, right: true },
-    { t: 'Нархи', w: COL_PRICE, right: true },
-    { t: 'Сумма', w: COL_SUM, right: true }
+    { t: 'Nomi', w: COL_NAME },
+    { t: 'Soni', w: COL_QTY, right: true },
+    { t: 'Narxi', w: COL_PRICE, right: true },
+    { t: 'Summa', w: COL_SUM, right: true }
   ]));
   nl();
   text('-'.repeat(W)); nl();
@@ -235,33 +235,33 @@ function buildEscpos(r, reprint) {
 
   // === JAMI ===
   bold(1);
-  if (hasUsd) lr('Жами:', formatUsd(usdOf(r.total_uzs)) + ' ' + formatMoney(r.total_uzs) + ' сум');
+  if (hasUsd) lr('Jami:', formatUsd(usdOf(r.total_uzs)) + ' ' + formatMoney(r.total_uzs) + ' so`m');
   else lr('Жами:', formatMoney(r.total_uzs) + ' сум');
   bold(0);
   const oldDebt = Number(r.old_debt_uzs || 0);
   if (oldDebt > 0) {
-    if (hasUsd) lr('Ески карз:', formatUsd(usdOf(oldDebt)) + ' ' + formatMoney(oldDebt) + ' сум');
+    if (hasUsd) lr('Eski qarz:', formatUsd(usdOf(oldDebt)) + ' ' + formatMoney(oldDebt) + ' so`m');
     else lr('Ески карз:', formatMoney(oldDebt) + ' сум');
   }
   if (r.payment_method === 'nasiya') {
     const tot = r.total_with_debt_uzs != null ? Number(r.total_with_debt_uzs) : Number(r.total_uzs) + oldDebt;
-    if (hasUsd) lr('Колган карз:', formatUsd(usdOf(tot)) + ' ' + formatMoney(tot) + ' сум');
-    else lr('Колган карз:', formatMoney(tot) + ' сум');
+    if (hasUsd) lr('Olingan Yuk:', formatUsd(usdOf(tot)) + ' ' + formatMoney(tot) + ' so`m');
+    else lr('Olingan Yuk:', formatMoney(tot) + ' сум');
   }
   text('Толув: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
 
   if (r.is_cancelled) {
-    bold(1); push(0x1b, 0x61, 0x01); center('*** БЕКОР КИЛИНГАН ***'); push(0x1b, 0x61, 0x00); bold(0);
+    bold(1); push(0x1b, 0x61, 0x01); center('*** BEKOR QILINGAN ***'); push(0x1b, 0x61, 0x00); bold(0);
   }
-  if (reprint) { push(0x1b, 0x61, 0x01); center('[кайта чоп этилган]'); push(0x1b, 0x61, 0x00); }
+  if (reprint) { push(0x1b, 0x61, 0x01); center('[Qayta chop etilgan]'); push(0x1b, 0x61, 0x00); }
 
   // === QO'SHIMCHA MA'LUMOT ===
   sep();
-  field('Тайёрловчи', r.prepared_by);
-  field('Етказ', r.delivery_status);
+  field('Tayyorlovchi', r.prepared_by);
+  field('Yetkaz', r.delivery_status);
   push(0x1b, 0x61, 0x01); // center
-  center('Камчилик ва хатолар учун 3 кун ичида мурожаат килинг!');
-  center('Майда хизматдаги пуллар учун рази буланг.');
+  center('Kamchilik va xatolar uchun 3 kun ichida murojaat qiling!');
+  center('+998903667788');
   push(0x1b, 0x61, 0x00);
 
   nl(); nl(); nl(); nl();
