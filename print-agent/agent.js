@@ -236,19 +236,19 @@ function buildEscpos(r, reprint) {
   // === JAMI ===
   bold(1);
   if (hasUsd) lr('Jami:', formatUsd(usdOf(r.total_uzs)) + ' ' + formatMoney(r.total_uzs) + ' so`m');
-  else lr('Жами:', formatMoney(r.total_uzs) + ' сум');
+  else lr('Jami:', formatMoney(r.total_uzs) + ' so'm');
   bold(0);
   const oldDebt = Number(r.old_debt_uzs || 0);
   if (oldDebt > 0) {
     if (hasUsd) lr('Eski qarz:', formatUsd(usdOf(oldDebt)) + ' ' + formatMoney(oldDebt) + ' so`m');
-    else lr('Ески карз:', formatMoney(oldDebt) + ' сум');
+    else lr('Eski qarz:', formatMoney(oldDebt) + ' сум');
   }
   if (r.payment_method === 'nasiya') {
     const tot = r.total_with_debt_uzs != null ? Number(r.total_with_debt_uzs) : Number(r.total_uzs) + oldDebt;
     if (hasUsd) lr('Olingan Yuk:', formatUsd(usdOf(tot)) + ' ' + formatMoney(tot) + ' so`m');
     else lr('Olingan Yuk:', formatMoney(tot) + ' сум');
   }
-  text('Толув: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
+  text('To`lov uslubi: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
 
   if (r.is_cancelled) {
     bold(1); push(0x1b, 0x61, 0x01); center('*** BEKOR QILINGAN ***'); push(0x1b, 0x61, 0x00); bold(0);
@@ -260,8 +260,8 @@ function buildEscpos(r, reprint) {
   field('Tayyorlovchi', r.prepared_by);
   field('Yetkaz', r.delivery_status);
   push(0x1b, 0x61, 0x01); // center
-  center('Kamchilik va xatolar uchun 3 kun ichida murojaat qiling!');
-  center('+998903667788');
+  center('Kamchilik va xatolar uchun 3 kun ichida murojaat qiling! +998903667788');
+  center('Savdoingizga baraka bersin!');
   push(0x1b, 0x61, 0x00);
 
   nl(); nl(); nl(); nl();
