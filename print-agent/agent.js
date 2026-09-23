@@ -260,8 +260,8 @@ function buildEscpos(r, reprint) {
   field('Tayyorlovchi', r.prepared_by);
   field('Yetkaz', r.delivery_status);
   push(0x1b, 0x61, 0x01); // center
-  center('Kamchilik va xatolar uchun 3 kun ichida murojaat qiling! +998903667788');
-  center('Savdoingizga baraka bersin!');
+  center('Kamchilik va xatolar uchun 3 kun ichida murojaat qiling! +998705240706');
+  center('Shafyorlar: Nizomiddin: +998935172520 ; Yaxyoxon: +998999999999');
   push(0x1b, 0x61, 0x00);
 
   nl(); nl(); nl(); nl();
