@@ -98,6 +98,8 @@ async function initDb() {
   await q(`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS base_price_uzs BIGINT`);
   // Chekdagi telefon raqamlari: sotuvchi telefoni + 2 ta qo'shimcha raqam
   await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`);
+  // Sotuvchi PINi admin panelda ko'rinsin — yangi PINlar oddiy holatda ham saqlanadi
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS pin_view TEXT NOT NULL DEFAULT ''`);
   await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_1 TEXT NOT NULL DEFAULT ''`);
   await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_2 TEXT NOT NULL DEFAULT ''`);
   // Chek yuqorisida chiqadigan sarlavha (dastur nomi)

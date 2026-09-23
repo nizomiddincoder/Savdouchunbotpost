@@ -24,7 +24,7 @@ async function uniquePin(excludeId) {
 router.get('/sellers', adminOnly, async (req, res, next) => {
   try {
     const { rows } = await q(`
-      SELECT s.id, s.name, s.phone, s.is_active,
+      SELECT s.id, s.name, s.phone, s.is_active, s.pin_view,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_c,
         (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_s,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}) AS month_c,
@@ -32,7 +32,7 @@ router.get('/sellers', adminOnly, async (req, res, next) => {
       FROM sellers s ORDER BY s.name`);
     res.json({
       sellers: rows.map(r => ({
-        id: r.id, name: r.name, phone: r.phone || '', is_active: r.is_active,
+        id: r.id, name: r.name, phone: r.phone || '', pin_view: r.pin_view || '', is_active: r.is_active,
         today_c: Number(r.today_c), today_s: Number(r.today_s),
         month_c: Number(r.month_c), month_s: Number(r.month_s)
       }))
@@ -44,9 +44,10 @@ router.post('/sellers', adminOnly, async (req, res, next) => {
   try {
     const name = String(req.body.name || '').trim().replace(/\s+/g, ' ');
     if (name.length < 2) throw new Error('Sotuvchi ismini kiriting');
-    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 15);
+    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '');
+    if (!/^\+?\d{7,15}$/.test(phone)) throw new Error("Sotuvchi telefon raqami shart (masalan: 901234567 yoki +998901234567)");
     const pin = await uniquePin();
-    const { rows } = await q('INSERT INTO sellers (name, phone, pin_hash) VALUES ($1, $2, $3) RETURNING id', [name, phone, hashPin(pin)]);
+    const { rows } = await q('INSERT INTO sellers (name, phone, pin_hash, pin_view) VALUES ($1, $2, $3, $4) RETURNING id', [name, phone, hashPin(pin), pin]);
     res.json({ id: rows[0].id, pin });
   } catch (e) { next(e); }
 });
@@ -54,7 +55,7 @@ router.post('/sellers', adminOnly, async (req, res, next) => {
 router.post('/sellers/:id/reset-pin', adminOnly, async (req, res, next) => {
   try {
     const pin = await uniquePin(+req.params.id);
-    await q('UPDATE sellers SET pin_hash = $1 WHERE id = $2', [hashPin(pin), req.params.id]);
+    await q('UPDATE sellers SET pin_hash = $1, pin_view = $2 WHERE id = $3', [hashPin(pin), pin, req.params.id]);
     res.json({ pin });
   } catch (e) { next(e); }
 });
@@ -63,7 +64,11 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
   try {
     if (typeof req.body.is_active === 'boolean') await q('UPDATE sellers SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
     if (req.body.name) await q('UPDATE sellers SET name = $1 WHERE id = $2', [String(req.body.name).trim().slice(0, 60), req.params.id]);
-    if (req.body.phone !== undefined) await q('UPDATE sellers SET phone = $1 WHERE id = $2', [String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 15), req.params.id]);
+    if (req.body.phone !== undefined) {
+      const ph = String(req.body.phone || '').replace(/[^\d+]/g, '');
+      if (!/^\+?\d{7,15}$/.test(ph)) throw new Error("Sotuvchi telefon raqami noto'g'ri yoki bo'sh");
+      await q('UPDATE sellers SET phone = $1 WHERE id = $2', [ph, req.params.id]);
+    }
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

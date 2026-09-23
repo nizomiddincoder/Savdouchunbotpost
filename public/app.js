@@ -17,6 +17,21 @@ function esc(s) {
 }
 function fmt(n) { return Math.round(Number(n) || 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
 function money(n) { return fmt(n) + " so'm"; }
+// USD narx har doim 2 xonali kasr bilan: 12,50 / 1 234,56
+function fmtUsd(n) { return (Number(n) || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ').replace('.', ','); }
+
+/* ===== Tungi rejim ===== */
+let THEME = localStorage.getItem('theme') || 'light';
+function applyTheme() { document.body.classList.toggle('dark', THEME === 'dark'); }
+function toggleTheme() {
+  THEME = THEME === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('theme', THEME);
+  applyTheme();
+  const b = document.getElementById('btnTheme');
+  if (b) { b.textContent = THEME === 'dark' ? '☀️' : '🌙'; b.title = THEME === 'dark' ? 'Kunduzgi rejim' : 'Tungi rejim'; }
+}
+function themeBtnHtml() { return '<button class="icon-btn" id="btnTheme" title="' + (THEME === 'dark' ? 'Kunduzgi rejim' : 'Tungi rejim') + '">' + (THEME === 'dark' ? '☀️' : '🌙') + '</button>'; }
+applyTheme();
 function chekNo(n) { return '#' + String(n).padStart(6, '0'); }
 const PAY_LABELS = { naqd: '💵 Naqd', karta: '💳 Plastik karta', nasiya: '📕 Nasiya' };
 
@@ -176,6 +191,7 @@ async function renderSeller() {
     '<button class="icon-btn" id="btnRefresh" title="Yangilash">⟳</button>' +
     '<button class="icon-btn" id="btnAddP" title="Mahsulot qo\'shish">＋</button>' +
     '<button class="icon-btn" id="btnKab" title="Kabinetim">📊</button>' +
+    themeBtnHtml() +
     '<button class="icon-btn danger" id="btnLogout" title="Chiqish">⏻</button>' +
     '</div></header>' +
     '<div class="wrap" id="mainWrap">' +
@@ -190,6 +206,7 @@ async function renderSeller() {
   document.getElementById('btnRefresh').onclick = () => renderSeller();
   document.getElementById('btnAddP').onclick = () => openAddProduct(null);
   document.getElementById('btnKab').onclick = () => renderKabinet();
+  document.getElementById('btnTheme').onclick = toggleTheme;
   document.getElementById('btnLogout').onclick = async () => {
     if (await askModal('Chiqmoqchimisiz?')) logout();
   };
@@ -216,7 +233,7 @@ function renderGrid(filter) {
     '</div>' +
     '<div class="pname">' + esc(p.name) + '</div>' +
     '<div class="pprice">' + fmt(p.price_uzs) + " so'm</div>" +
-    (p.currency === 'USD' ? '<div class="porig">$' + fmt(p.price) + '</div>' : '') +
+    (p.currency === 'USD' ? '<div class="porig">$' + fmtUsd(p.price) + '</div>' : '') +
     '</div>'
   ).join('') : '<div class="empty">Mahsulot topilmadi</div>';
 }
@@ -528,7 +545,7 @@ function openImportModal() {
   );
 
   let b64 = null;
-  document.getElementById('impTpl').onclick = () => downloadXlsx('/products/import/template.xlsx', 'mahsulot-namuna.xlsx');
+  document.getElementById('impTpl').onclick = () => downloadFile('/products/import/template.xlsx', 'mahsulot-namuna.xlsx');
 
   document.getElementById('impFile').onchange = function () {
     const f = this.files[0];
@@ -628,7 +645,7 @@ async function receiptModal(id) {
     (r.shop_phone ? '<div class="p-phone">' + esc(r.shop_phone) + '</div>' : '') +
     '<div class="p-sep"></div>' +
     '<div class="p-row"><span>Chek ' + chekNo(r.receipt_no) + '</span><span>' + esc(r.datetime_local) + '</span></div>' +
-    '<div class="p-row"><span>Sotuvchi</span><b>' + esc(r.seller_name) + '</b></div>' +
+    '<div class="p-row"><span>Sotuvchi</span><b>' + esc(r.seller_name) + (r.seller_phone ? ' • ' + esc(r.seller_phone) : '') + '</b></div>' +
     '<div class="p-row"><span>Xaridor</span><b>' + esc(r.customer_name) + '</b></div>' +
     (r.customer_phone ? '<div class="p-row"><span>Telefon</span><b>' + esc(r.customer_phone) + '</b></div>' : '') +
     '<div class="p-row"><span>To\'lov</span><b>' + esc((PAY_LABELS[r.payment_method] || PAY_LABELS.naqd).replace(/^\S+\s/, '')) + '</b></div>' +
@@ -661,7 +678,7 @@ async function renderAdmin(tab) {
   app.innerHTML =
     '<header class="topbar">' +
     '<div><div class="shop-name">🛒 Admin panel</div><div class="muted sm">' + esc(ME.name) + '</div></div>' +
-    '<div class="tb-right"><button class="icon-btn danger" id="btnLogout">⏻</button></div>' +
+    '<div class="tb-right">' + themeBtnHtml() + '<button class="icon-btn danger" id="btnLogout">⏻</button></div>' +
     '</header>' +
     '<nav class="tabs" id="tabs">' +
     [['dash','📊 Boshqaruv'],['sales','🧾 Savdolar'],['products','📦 Mahsulotlar'],['sellers','👥 Sotuvchilar'],['customers','🛍 Xaridorlar'],['settings','⚙️ Sozlamalar']]
@@ -674,6 +691,7 @@ async function renderAdmin(tab) {
     const b = e.target.closest('.tab');
     if (b) { ADMIN_TAB = b.dataset.tab; renderAdmin(); }
   };
+  document.getElementById('btnTheme').onclick = toggleTheme;
   document.getElementById('btnLogout').onclick = async () => {
     if (await askModal('Chiqmoqchimisiz?')) logout();
   };
@@ -728,11 +746,11 @@ async function renderDash(el) {
 
   document.getElementById('btnXD').onclick = () => {
     const v = document.getElementById('xD').value;
-    downloadXlsx('/reports/daily.xlsx' + (v ? '?date=' + v : ''), 'savdo-' + (v || today) + '.xlsx');
+    downloadFile('/reports/daily.xlsx' + (v ? '?date=' + v : ''), 'savdo-' + (v || today) + '.xlsx');
   };
   document.getElementById('btnXM').onclick = () => {
     const v = document.getElementById('xM').value;
-    downloadXlsx('/reports/monthly.xlsx' + (v ? '?month=' + v : ''), 'savdo-' + (v || month) + '.xlsx');
+    downloadFile('/reports/monthly.xlsx' + (v ? '?month=' + v : ''), 'savdo-' + (v || month) + '.xlsx');
   };
 }
 
@@ -787,6 +805,8 @@ async function renderProductsTab(el) {
     '<div class="filters">' +
     '<input class="inp" id="pSearch" style="flex:1;min-width:180px" placeholder="🔍 Qidirish...">' +
     '<button class="btn ghost" id="btnImport">📥 Excel import</button>' +
+    '<button class="btn ghost" id="btnExpX">⬇️ Excel</button>' +
+    '<button class="btn ghost" id="btnExpP">⬇️ PDF</button>' +
     '<button class="btn" id="btnAddProd">＋ Mahsulot</button>' +
     '<button class="btn danger" id="btnDelAll">🗑 Hammasini o\'chirish</button>' +
     '</div><div class="table-wrap"><table class="table">' +
@@ -801,7 +821,7 @@ async function renderProductsTab(el) {
         ? '<img class="thumb-sm" loading="lazy" src="/api/products/' + p.id + '/image" onerror="this.replaceWith(document.createTextNode(\'📦\'))">'
         : '📦') + '</td>' +
       '<td><b>' + esc(p.name) + '</b></td>' +
-      '<td>' + (p.currency === 'USD' ? '$' : '') + fmt(p.price) + '</td>' +
+      '<td>' + (p.currency === 'USD' ? '$' : '') + (p.currency === 'USD' ? fmtUsd(p.price) : fmt(p.price)) + '</td>' +
       '<td>' + p.currency + '</td>' +
       '<td>' + fmt(p.price_uzs) + '</td>' +
       '<td class="muted">' + esc(p.created_by || 'Admin') + '</td>' +
@@ -815,6 +835,8 @@ async function renderProductsTab(el) {
   document.getElementById('pSearch').oninput = renderRows;
   document.getElementById('btnAddProd').onclick = () => openAddProduct(null);
   document.getElementById('btnImport').onclick = () => openImportModal();
+  document.getElementById('btnExpX').onclick = () => downloadFile('/products/export.xlsx', 'mahsulotlar.xlsx');
+  document.getElementById('btnExpP').onclick = () => downloadFile('/products/export.pdf', 'mahsulotlar.pdf');
   document.getElementById('btnDelAll').onclick = async () => {
     const w = await askModal('⚠️ BARCHA mahsulotlar o\'chiriladi!', {
       input: true, placeholder: 'Tasdiqlash uchun OCHIR deb yozing', okText: 'O\'chirish', danger: true
@@ -860,11 +882,12 @@ async function renderSellersTab(el) {
   el.innerHTML =
     '<div class="filters"><button class="btn" id="btnAddSeller">＋ Sotuvchi</button></div>' +
     '<div class="table-wrap"><table class="table">' +
-    '<tr><th>Ism</th><th>Тел</th><th>Bugun</th><th>Bu oy</th><th>Holat</th><th></th></tr>' +
+    '<tr><th>Ism</th><th>Тел</th><th>PIN</th><th>Bugun</th><th>Bu oy</th><th>Holat</th><th></th></tr>' +
     d.sellers.map(s =>
       '<tr class="' + (s.is_active ? '' : 'row-off') + '">' +
       '<td><b>' + esc(s.name) + '</b></td>' +
       '<td>' + esc(s.phone || '') + ' <button class="icon-btn" data-ph="' + s.id + '" data-cur="' + esc(s.phone || '') + '" title="Telefonni yozish/o\'zgartirish">✏️</button></td>' +
+      '<td><b style="letter-spacing:2px;color:var(--acc-d)">' + esc(s.pin_view || '—') + '</b></td>' +
       '<td>' + s.today_c + ' ta / ' + fmt(s.today_s) + '</td>' +
       '<td>' + s.month_c + ' ta / ' + fmt(s.month_s) + '</td>' +
       '<td>' + (s.is_active ? '<span class="badge b-ok">faol</span>' : '<span class="badge b-no">bloklangan</span>') + '</td>' +
@@ -878,9 +901,15 @@ async function renderSellersTab(el) {
   document.getElementById('btnAddSeller').onclick = async () => {
     const name = await askModal('Yangi sotuvchi ismi', { input: true, placeholder: 'Masalan: Aziz', okText: 'Keyingi' });
     if (!name) return;
-    const phone = await askModal('Sotuvchi telefoni (chekda chiqadi)', { input: true, placeholder: 'Masalan: 901234567', okText: 'Yaratish' });
+    let phone = '';
+    while (true) {
+      const p = await askModal('Sotuvchi telefoni (chekda chiqadi) — shart', { input: true, placeholder: 'Masalan: 901234567', okText: 'Yaratish' });
+      if (p === null) return;
+      if (p) { phone = p; break; }
+      toast('Telefon raqamini kiritish shart');
+    }
     try {
-      const r = await api('/sellers', { method: 'POST', body: { name, phone: phone || '' } });
+      const r = await api('/sellers', { method: 'POST', body: { name, phone } });
       openPinModal(r.pin, name + ' — PIN kodi');
       renderTab('sellers');
     } catch (e) { toast(e.message); }
@@ -888,8 +917,9 @@ async function renderSellersTab(el) {
   el.onclick = async e => {
     const ph = e.target.closest('[data-ph]');
     if (ph) {
-      const phone = await askModal('Sotuvchi telefoni (chekda chiqadi)', { input: true, placeholder: ph.dataset.cur || 'Masalan: 901234567', okText: 'Saqlash' });
+      const phone = await askModal('Sotuvchi telefoni (chekda chiqadi) — shart', { input: true, placeholder: ph.dataset.cur || 'Masalan: 901234567', okText: 'Saqlash' });
       if (phone === null) return;
+      if (!phone) return toast('Telefon raqami bo\'sh bo\'lishi mumkin emas');
       try {
         await api('/sellers/' + ph.dataset.ph, { method: 'PATCH', body: { phone } });
         toast('Telefon saqlandi');
@@ -933,7 +963,7 @@ async function renderCustomersTab(el) {
         '<td>' + c.visits + ' ta</td>' +
         '<td>' + fmt(c.total_spent) + '</td>' +
         '<td class="muted">' + esc(c.last_visit || '—') + '</td>' +
-        '<td>' + (c.first_seen && c.first_seen.slice(0, 7) === month ? '<span class="badge b-ok">yangi</span>' : '<span class="badge b-no" style="background:#e5e7eb;color:#6b7280">eski</span>') + '</td>' +
+        '<td>' + (c.first_seen && c.first_seen.slice(0, 7) === month ? '<span class="badge b-ok">yangi</span>' : '<span class="badge b-neu">eski</span>') + '</td>' +
         '<td><button class="icon-btn" data-hist="' + c.id + '" title="Tarix va qarz">📋</button></td>' +
         '</tr>'
       ).join('') + '</table></div>'
@@ -1087,7 +1117,7 @@ async function renderSettingsTab(el) {
   };
 }
 
-async function downloadXlsx(path, name) {
+async function downloadFile(path, name) {
   try {
     const r = await fetch('/api' + path, { headers: { Authorization: 'Bearer ' + TOKEN } });
     if (!r.ok) throw new Error('Yuklab bo\'lmadi');

@@ -24,6 +24,7 @@ const productRoutes = require('./src/routes/products');
 const saleRoutes = require('./src/routes/sales');
 const adminRoutes = require('./src/routes/admin');
 const { initBot } = require('./src/bot');
+const { startPinRecovery } = require('./src/pin-view');
 const { initWs } = require('./src/ws');
 
 const app = express();
@@ -88,6 +89,7 @@ const PORT = process.env.PORT || 3000;
   }
 
   // 3) Qolgan tizimlar
+  startPinRecovery();
   initWs(server);
   initBot();
 })();
