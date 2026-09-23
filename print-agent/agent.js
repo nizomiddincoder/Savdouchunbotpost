@@ -236,12 +236,12 @@ function buildEscpos(r, reprint) {
   // === JAMI ===
   bold(1);
   if (hasUsd) lr('Jami:', formatUsd(usdOf(r.total_uzs)) + ' ' + formatMoney(r.total_uzs) + ' so`m');
-  else lr('Jami:', formatMoney(r.total_uzs) + ' so'm');
+  else lr('Jami:', formatMoney(r.total_uzs) + ' so`m');
   bold(0);
   const oldDebt = Number(r.old_debt_uzs || 0);
   if (oldDebt > 0) {
     if (hasUsd) lr('Eski qarz:', formatUsd(usdOf(oldDebt)) + ' ' + formatMoney(oldDebt) + ' so`m');
-    else lr('Eski qarz:', formatMoney(oldDebt) + ' сум');
+    else lr('Eski qarz:', formatMoney(oldDebt) + ' so`m');
   }
   if (r.payment_method === 'nasiya') {
     const tot = r.total_with_debt_uzs != null ? Number(r.total_with_debt_uzs) : Number(r.total_uzs) + oldDebt;
