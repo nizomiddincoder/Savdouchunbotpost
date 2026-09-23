@@ -44,7 +44,8 @@ router.post('/sellers', adminOnly, async (req, res, next) => {
   try {
     const name = String(req.body.name || '').trim().replace(/\s+/g, ' ');
     if (name.length < 2) throw new Error('Sotuvchi ismini kiriting');
-    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 15);
+    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '');
+    if (!/^\+?\d{7,15}$/.test(phone)) throw new Error("Sotuvchi telefon raqami shart (masalan: 901234567 yoki +998901234567)");
     const pin = await uniquePin();
     const { rows } = await q('INSERT INTO sellers (name, phone, pin_hash) VALUES ($1, $2, $3) RETURNING id', [name, phone, hashPin(pin)]);
     res.json({ id: rows[0].id, pin });
@@ -63,7 +64,11 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
   try {
     if (typeof req.body.is_active === 'boolean') await q('UPDATE sellers SET is_active = $1 WHERE id = $2', [req.body.is_active, req.params.id]);
     if (req.body.name) await q('UPDATE sellers SET name = $1 WHERE id = $2', [String(req.body.name).trim().slice(0, 60), req.params.id]);
-    if (req.body.phone !== undefined) await q('UPDATE sellers SET phone = $1 WHERE id = $2', [String(req.body.phone || '').replace(/[^\d+]/g, '').slice(0, 15), req.params.id]);
+    if (req.body.phone !== undefined) {
+      const ph = String(req.body.phone || '').replace(/[^\d+]/g, '');
+      if (!/^\+?\d{7,15}$/.test(ph)) throw new Error("Sotuvchi telefon raqami noto'g'ri yoki bo'sh");
+      await q('UPDATE sellers SET phone = $1 WHERE id = $2', [ph, req.params.id]);
+    }
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
