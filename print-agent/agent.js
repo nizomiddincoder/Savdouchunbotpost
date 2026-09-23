@@ -44,19 +44,56 @@ const W = 48;
 // Jadval ustunlari — ustunlar orasida '|' chizig'i turadi (4 ta): 2+18+5+9+10+4 = 48
 const COL_NO = 2, COL_NAME = 18, COL_QTY = 5, COL_PRICE = 9, COL_SUM = 10;
 
+/* ===== Lotin <-> Kirill translit (chek yozuvi uchun) ===== */
+let RSCRIPT = 'lat';   // 'lat' | 'cyr' — buildEscpos har safar o'rnatadi
+
+const CYR_D = { 'sh': 'ш', 'ch': 'ч', 'yo': 'ё', 'yu': 'ю', 'ya': 'я', 'ye': 'е', "o'": 'ў', 'o`': 'ў', "g'": 'ғ', 'g`': 'ғ', 'ng': 'нг' };
+const CYR_L = { a: 'а', b: 'б', c: 'ц', d: 'д', e: 'е', f: 'ф', g: 'г', h: 'ҳ', i: 'и', j: 'ж', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', q: 'қ', r: 'р', s: 'с', t: 'т', u: 'у', v: 'в', x: 'х', y: 'й', z: 'з' };
+const LAT_M = { 'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'ғ': "g'", 'д': 'd', 'е': 'e', 'ё': 'yo', 'ж': 'j', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'қ': 'q', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ў': "o'", 'ф': 'f', 'х': 'x', 'ҳ': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sh', 'ъ': '', 'ь': '', 'ы': 'i', 'э': 'e', 'ю': 'yu', 'я': 'ya' };
+
+function latinToCyr(s) {
+  let out = '', i = 0;
+  const low = s.toLowerCase();
+  while (i < s.length) {
+    const d = CYR_D[low.slice(i, i + 2)];
+    if (d) { out += s[i] === low[i] ? d : d.charAt(0).toUpperCase() + d.slice(1); i += 2; continue; }
+    const cl = low[i];
+    if (cl === 'y' && low[i + 1] === 'i') { out += 'й'; i++; continue; }
+    if (CYR_L[cl] !== undefined) { out += s[i] === cl ? CYR_L[cl] : CYR_L[cl].toUpperCase(); i++; continue; }
+    out += s[i]; i++;
+  }
+  return out;
+}
+function cyrToLat(s) {
+  let out = '';
+  for (const c of String(s)) {
+    const l = c.toLowerCase();
+    if (LAT_M[l] === undefined) { out += c; continue; }
+    const t = LAT_M[l];
+    out += !t ? '' : (c === l ? t : t.charAt(0).toUpperCase() + t.slice(1));
+  }
+  return out;
+}
+
 function sanitize(s) {
-  return String(s == null ? '' : s)
+  let t = String(s == null ? '' : s)
     .replace(/[\u2018\u2019\u02BC\u00B4]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2013\u2014]/g, '-')
     .replace(/\u2026/g, '...')
-    // CP866 da yo'q o'zbek harflarini mos harflarga o'tkazamiz ( printer ham shunday chiqaradi)
-    .replace(/\u040E/g, 'У').replace(/\u045E/g, 'у')   // Ў ў
-    .replace(/\u049A/g, 'К').replace(/\u049B/g, 'к')   // Қ қ
-    .replace(/\u0492/g, 'Г').replace(/\u0493/g, 'г')   // Ғ ғ
-    .replace(/\u04B2/g, 'Х').replace(/\u04B3/g, 'х')   // Ҳ ҳ
-    .replace(/\u2116/g, '#')                            // №
     .replace(/[^\x20-\x7E\u0400-\u04FF]/g, '');
+  if (RSCRIPT === 'cyr') {
+    // Kirillda chop: lotin -> kirill. CP866da yo'q harflar (ўқғҳ) mos harflarga o'tkaziladi
+    t = latinToCyr(t)
+      .replace(/ў/g, 'у').replace(/Ў/g, 'У')
+      .replace(/қ/g, 'к').replace(/Қ/g, 'К')
+      .replace(/ғ/g, 'г').replace(/Ғ/g, 'Г')
+      .replace(/ҳ/g, 'х').replace(/Ҳ/g, 'Х');
+  } else {
+    // Lotinda chop: kirill matnlar (masalan kirillcha kiritilgan mahsulot nomi) lotinga o'giriladi
+    t = cyrToLat(t);
+  }
+  return t;
 }
 
 // Kirillni CP866 baytiga o'tkazish (ESC t 17 kod sahifasi bilan)
@@ -145,6 +182,7 @@ function formatReceiptRow(no, name, qty, price, sum) {
 
 /* ===== ESC/POS chek (80mm) ===== */
 function buildEscpos(r, reprint) {
+  RSCRIPT = r.receipt_script === 'cyrillic' ? 'cyr' : 'lat';
   const a = [];
   const push = (...bs) => bs.forEach(b => a.push(b & 0xff));
   const text = s => { for (const ch of sanitize(s)) a.push(cp866Byte(ch)); };
@@ -271,6 +309,7 @@ function buildEscpos(r, reprint) {
 
 // Test cheki — { type: 'test-print' } kelganda yoki `node agent.js --test` bilan chop etiladi
 function buildTestReceipt() {
+  RSCRIPT = 'lat';
   const a = [];
   const push = (...bs) => bs.forEach(b => a.push(b & 0xff));
   const text = s => { for (const ch of sanitize(s)) a.push(cp866Byte(ch)); };

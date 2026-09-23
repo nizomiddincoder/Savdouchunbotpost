@@ -95,6 +95,8 @@ async function initDb() {
   await q(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS debt_uzs BIGINT NOT NULL DEFAULT 0`);
   await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'naqd'`);
   await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS old_debt_uzs BIGINT NOT NULL DEFAULT 0`);
+  // Chek qaysi yozuvda (lotin/kirill) chiqishi
+  await q(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS receipt_script TEXT NOT NULL DEFAULT 'latin'`);
   await q(`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS base_price_uzs BIGINT`);
   // Chekdagi telefon raqamlari: sotuvchi telefoni + 2 ta qo'shimcha raqam
   await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`);

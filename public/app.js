@@ -32,6 +32,87 @@ function toggleTheme() {
 }
 function themeBtnHtml() { return '<button class="icon-btn" id="btnTheme" title="' + (THEME === 'dark' ? 'Kunduzgi rejim' : 'Tungi rejim') + '">' + (THEME === 'dark' ? '☀️' : '🌙') + '</button>'; }
 applyTheme();
+
+/* ===== Lotin / Kirill yozuv ===== */
+let SCRIPT = localStorage.getItem('script') || 'latin';
+
+const CYR_SKIP = /\b(Excel|PDF|PIN|USD|UZS|OK|ID|IP)\b/gi;
+const CYR_D = { 'sh': 'ш', 'ch': 'ч', 'yo': 'ё', 'yu': 'ю', 'ya': 'я', 'ye': 'е', "o'": 'ў', 'o`': 'ў', "g'": 'ғ', 'g`': 'ғ', 'ng': 'нг' };
+const CYR_L = { a: 'а', b: 'б', c: 'ц', d: 'д', e: 'е', f: 'ф', g: 'г', h: 'ҳ', i: 'и', j: 'ж', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', q: 'қ', r: 'р', s: 'с', t: 'т', u: 'у', v: 'в', x: 'х', y: 'й', z: 'з' };
+const LAT_M = { 'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'ғ': "g'", 'д': 'd', 'е': 'e', 'ё': 'yo', 'ж': 'j', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'қ': 'q', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ў': "o'", 'ф': 'f', 'х': 'x', 'ҳ': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sh', 'ъ': '', 'ь': '', 'ы': 'i', 'э': 'e', 'ю': 'yu', 'я': 'ya' };
+
+function latinToCyr(s) {
+  s = String(s);
+  if (!/[a-zA-Z]/.test(s)) return s;
+  const keep = [];
+  s = s.replace(CYR_SKIP, m => '\u0001' + (keep.push(m) - 1) + '\u0001');
+  let out = '', i = 0;
+  const low = s.toLowerCase();
+  while (i < s.length) {
+    const d = CYR_D[low.slice(i, i + 2)];
+    if (d) { out += s[i] === low[i] ? d : d.charAt(0).toUpperCase() + d.slice(1); i += 2; continue; }
+    const cl = low[i];
+    if (cl === 'y' && low[i + 1] === 'i') { out += 'й'; i++; continue; }
+    if (CYR_L[cl] !== undefined) { out += s[i] === cl ? CYR_L[cl] : CYR_L[cl].toUpperCase(); i++; continue; }
+    out += s[i]; i++;
+  }
+  return out.replace(/\u0001(\d+)\u0001/g, (_, n) => keep[+n]);
+}
+function cyrToLat(s) {
+  let out = '';
+  for (const c of String(s)) {
+    const l = c.toLowerCase();
+    if (LAT_M[l] === undefined) { out += c; continue; }
+    const t = LAT_M[l];
+    out += !t ? '' : (c === l ? t : t.charAt(0).toUpperCase() + t.slice(1));
+  }
+  return out;
+}
+function tsc(s) { return SCRIPT === 'cyrillic' ? latinToCyr(s) : cyrToLat(s); }
+
+// Sahifadagi BARCHA matn (shu jumladan mahsulot nomlari) tanlangan yozuvga o'giriladi
+function walkScript(root) {
+  if (!root || root.nodeType !== 1) return;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = w.nextNode())) {
+    if (n.parentElement && n.parentElement.closest('.no-trans')) continue;
+    const v = tsc(n.nodeValue);
+    if (v !== n.nodeValue) n.nodeValue = v;
+  }
+  root.querySelectorAll('input[placeholder]').forEach(i => {
+    const v = tsc(i.placeholder);
+    if (v !== i.placeholder) i.placeholder = v;
+  });
+}
+const scriptMo = new MutationObserver(ms => {
+  for (const m of ms) {
+    if (m.type === 'childList') m.addedNodes.forEach(n => {
+      if (n.nodeType === 3) {
+        if (n.parentElement && n.parentElement.closest('.no-trans')) return;
+        const v = tsc(n.nodeValue);
+        if (v !== n.nodeValue) n.nodeValue = v;
+      } else if (n.nodeType === 1) walkScript(n);
+    });
+    else if (m.type === 'characterData') {
+      if (m.target.parentElement && m.target.parentElement.closest('.no-trans')) return;
+      const v = tsc(m.target.nodeValue);
+      if (v !== m.target.nodeValue) m.target.nodeValue = v;
+    }
+  }
+});
+scriptMo.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+function scriptBtnHtml() {
+  return '<button class="icon-btn btnScript no-trans" title="Lotin / Кирилл">' + (SCRIPT === 'latin' ? 'Кир' : 'Лот') + '</button>';
+}
+function toggleScript() {
+  SCRIPT = SCRIPT === 'latin' ? 'cyrillic' : 'latin';
+  localStorage.setItem('script', SCRIPT);
+  walkScript(document.body);
+  document.querySelectorAll('.btnScript').forEach(b => b.textContent = SCRIPT === 'latin' ? 'Кир' : 'Лот');
+}
+document.addEventListener('click', e => { if (e.target.closest('.btnScript')) toggleScript(); });
 function chekNo(n) { return '#' + String(n).padStart(6, '0'); }
 const PAY_LABELS = { naqd: '💵 Naqd', karta: '💳 Plastik karta', nasiya: '📕 Nasiya' };
 
@@ -137,6 +218,7 @@ function renderLogin() {
     '<input class="inp" id="aUser" placeholder="Login" autocomplete="username">' +
     '<input class="inp" id="aPass" type="password" placeholder="Parol" autocomplete="current-password">' +
     '<button class="btn big" type="submit">Kirish</button></form>' +
+    '<button class="link-btn btnScript no-trans">' + (SCRIPT === 'latin' ? 'Кирилл' : 'Lotin') + '</button>' +
     '</div></div>';
 
   let pin = '';
@@ -191,6 +273,7 @@ async function renderSeller() {
     '<button class="icon-btn" id="btnRefresh" title="Yangilash">⟳</button>' +
     '<button class="icon-btn" id="btnAddP" title="Mahsulot qo\'shish">＋</button>' +
     '<button class="icon-btn" id="btnKab" title="Kabinetim">📊</button>' +
+    scriptBtnHtml() +
     themeBtnHtml() +
     '<button class="icon-btn danger" id="btnLogout" title="Chiqish">⏻</button>' +
     '</div></header>' +
@@ -408,7 +491,8 @@ async function openCart() {
           }),
           customer_name: cname,
           customer_phone: phoneInp.value.trim(),
-          payment_method: pay
+          payment_method: pay,
+          script: SCRIPT
         }
       });
       cart = {};
@@ -446,9 +530,9 @@ function openSuccess(r) {
   document.getElementById('btnOk2').onclick = closeModal;
 }
 
-async function reprint(id) {
+async function reprint(id, script) {
   try {
-    await api('/sales/' + id + '/reprint', { method: 'POST' });
+    await api('/sales/' + id + '/reprint', { method: 'POST', body: script ? { script } : {} });
     toast('Chek printerga yuborildi');
   } catch (e) { toast(e.message); }
 }
@@ -664,11 +748,21 @@ async function receiptModal(id) {
         (r.cancel_reason ? ' (' + esc(r.cancel_reason) + ')' : '') + '</div>'
       : '') +
     '</div>' +
-    '<button class="btn big" id="mReprint">🖨 Qayta chop etish</button>' +
+    (ME && ME.role === 'admin'
+      ? '<div style="height:12px"></div><div class="modal-btns">' +
+        '<button class="btn big" id="mRepLat">🖨 Lotin</button>' +
+        '<button class="btn big" id="mRepCyr">🖨 Кирилл</button></div>'
+      : '<div style="height:12px"></div><button class="btn big" id="mReprint">🖨 Qayta chop etish</button>') +
     '<div style="height:8px"></div>' +
     '<button class="btn ghost big" id="mClose">Yopish</button>'
   );
-  document.getElementById('mReprint').onclick = () => reprint(r.receipt_no);
+  const rl = document.getElementById('mRepLat');
+  if (rl) {
+    rl.onclick = () => reprint(r.receipt_no, 'latin');
+    document.getElementById('mRepCyr').onclick = () => reprint(r.receipt_no, 'cyrillic');
+  } else {
+    document.getElementById('mReprint').onclick = () => reprint(r.receipt_no);
+  }
   document.getElementById('mClose').onclick = closeModal;
 }
 
@@ -678,7 +772,7 @@ async function renderAdmin(tab) {
   app.innerHTML =
     '<header class="topbar">' +
     '<div><div class="shop-name">🛒 Admin panel</div><div class="muted sm">' + esc(ME.name) + '</div></div>' +
-    '<div class="tb-right">' + themeBtnHtml() + '<button class="icon-btn danger" id="btnLogout">⏻</button></div>' +
+    '<div class="tb-right">' + scriptBtnHtml() + themeBtnHtml() + '<button class="icon-btn danger" id="btnLogout">⏻</button></div>' +
     '</header>' +
     '<nav class="tabs" id="tabs">' +
     [['dash','📊 Boshqaruv'],['sales','🧾 Savdolar'],['products','📦 Mahsulotlar'],['sellers','👥 Sotuvchilar'],['customers','🛍 Xaridorlar'],['settings','⚙️ Sozlamalar']]

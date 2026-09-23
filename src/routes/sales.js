@@ -30,6 +30,7 @@ async function buildReceipt(saleId) {
     customer_name: s.customer_name,
     customer_phone: s.customer_phone || null,
     payment_method: s.payment_method || 'naqd',
+    receipt_script: s.receipt_script === 'cyrillic' ? 'cyrillic' : 'latin',
     usd_rate: Number(s.usd_rate) || null,
     items: items.map(i => ({ name: i.product_name, qty: i.qty, price_uzs: Number(i.price_uzs), line_total_uzs: Number(i.line_total_uzs) })),
     total_uzs: Number(s.total_uzs),
@@ -59,6 +60,8 @@ router.post('/', anyAuth, async (req, res, next) => {
     if (!cname) throw new Error('Xaridor ismini kiriting');
     if (!Array.isArray(items) || !items.length) throw new Error('Savat bo\'sh');
     const pay = PAY_METHODS.includes(req.body.payment_method) ? req.body.payment_method : 'naqd';
+    // Sotuvchi tanlagan yozuv (lotin/kirill) — chek shu yozuvda chiqadi
+    const rscript = req.body.script === 'cyrillic' ? 'cyrillic' : 'latin';
     const phone = cleanPhone(customer_phone);
     const st = await getSettings();
     const rate = Number(st.usd_rate);
@@ -99,9 +102,9 @@ router.post('/', anyAuth, async (req, res, next) => {
         lines.push({ p, qty, priceUzs, baseUzs, lineTotal });
       }
       const sale = (await client.query(
-        `INSERT INTO sales (seller_id, customer_id, customer_name, total_uzs, usd_rate, payment_method, old_debt_uzs)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [req.user.id, c.id, cname, total, rate, pay, oldDebt])).rows[0];
+        `INSERT INTO sales (seller_id, customer_id, customer_name, total_uzs, usd_rate, payment_method, old_debt_uzs, receipt_script)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [req.user.id, c.id, cname, total, rate, pay, oldDebt, rscript])).rows[0];
       for (const l of lines) {
         await client.query(
           `INSERT INTO sale_items (sale_id, product_id, product_name, qty, price_orig, currency, price_uzs, line_total_uzs, base_price_uzs)
@@ -227,6 +230,9 @@ router.post('/:id/reprint', anyAuth, async (req, res, next) => {
   try {
     const { rows } = await q('SELECT id FROM sales WHERE id = $1', [req.params.id]);
     if (!rows[0]) throw new Error('Savdo topilmadi');
+    // Admin eski chekni lotin yoki kiril yozuvda qayta chop etishi mumkin
+    const script = req.body && (req.body.script === 'cyrillic' || req.body.script === 'latin') ? req.body.script : null;
+    if (script) await q('UPDATE sales SET receipt_script = $1 WHERE id = $2', [script, req.params.id]);
     await q('UPDATE sales SET reprint_count = reprint_count + 1 WHERE id = $1', [req.params.id]);
     const receipt = await buildReceipt(req.params.id);
     broadcast({ type: 'print', receipt, reprint: true });
