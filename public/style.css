@@ -114,6 +114,15 @@ input, select { font: inherit; color: var(--ink); }
 .cr-name { flex: 1; font-size: 14.5px; }
 .cr-qty { display: flex; align-items: center; gap: 8px; }
 .qbtn { width: 32px; height: 32px; border-radius: 9px; background: var(--soft); font-size: 18px; }
+/* Savatdagi son — qo'lda yozib o'zgartiriladi (strelkalari yashirilgan, ± tugmalari bor) */
+.qv-inp {
+  width: 52px; height: 32px; padding: 0; text-align: center;
+  font-size: 15px; font-weight: 700; color: var(--ink); background: var(--card);
+  border: 1.5px solid var(--line); border-radius: 9px;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.qv-inp:focus { outline: none; border-color: var(--acc); }
+.qv-inp::-webkit-outer-spin-button, .qv-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .cr-sum { min-width: 92px; text-align: right; font-weight: 700; font-size: 13.5px; }
 
 .lbl { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin: 12px 0 5px; }

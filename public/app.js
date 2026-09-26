@@ -115,6 +115,7 @@ function toggleScript() {
 document.addEventListener('click', e => { if (e.target.closest('.btnScript')) toggleScript(); });
 function chekNo(n) { return '#' + String(n).padStart(6, '0'); }
 const PAY_LABELS = { naqd: '💵 Naqd', karta: '💳 Plastik karta', nasiya: '📕 Nasiya' };
+const QTY_MAX = 999999;   // savatda bir mahsulotga eng ko'p qo'shiladigan son
 
 let toastT;
 function toast(msg) {
@@ -398,7 +399,9 @@ async function openCart() {
           ? 'Naqd: ' + fmt(it.p.price_uzs) + ' → <input class="nasiya-price" data-pid="' + it.p.id + '" type="number" min="0" step="1" inputmode="numeric" value="' + pr + '"> so\'m'
           : money(it.p.price_uzs)) +
         '</div></div>' +
-        '<div class="cr-qty"><button class="qbtn" data-act="minus">−</button><b class="qv">' + it.qty + '</b><button class="qbtn" data-act="plus">+</button></div>' +
+        '<div class="cr-qty"><button class="qbtn" data-act="minus">−</button>' +
+        '<input class="qv-inp" data-pid="' + it.p.id + '" type="number" min="1" max="' + QTY_MAX + '" step="1" inputmode="numeric" value="' + it.qty + '">' +
+        '<button class="qbtn" data-act="plus">+</button></div>' +
         '<div class="cr-sum" data-sum="' + it.p.id + '">' + money(pr * it.qty) + '</div>' +
         '</div>';
     }).join('');
@@ -442,12 +445,11 @@ async function openCart() {
     if (!b) return;
     const row = b.closest('.cart-row');
     const id = +row.dataset.id;
-    if (b.dataset.act === 'plus') cart[id] = (cart[id] || 0) + 1;
+    if (b.dataset.act === 'plus') cart[id] = Math.min((cart[id] || 0) + 1, QTY_MAX);
     else {
       cart[id] = (cart[id] || 0) - 1;
-      if (cart[id] <= 0) { delete cart[id]; row.remove(); }
+      if (cart[id] <= 0) delete cart[id];
     }
-    if (cart[id] !== undefined) row.querySelector('.qv').textContent = cart[id];
     renderRows();
     recalc();
     updateCartBar();
@@ -470,6 +472,56 @@ async function openCart() {
     if (pay === 'nasiya' && old > 0 && !document.getElementById('debtTotalRow').hidden) {
       document.getElementById('debtTotalEl').textContent = money(total() + old);
     }
+  });
+
+  // Soni qo'lda yozilganda — yozish paytidagina qator summasi va jami yangilanadi (fokus saqlanadi)
+  document.getElementById('cartList').addEventListener('input', e => {
+    const inp = e.target.closest('.qv-inp');
+    if (!inp) return;
+    const pid = +inp.dataset.pid;
+    let v = parseInt(inp.value, 10);
+    if (isFinite(v) && v >= 1) {
+      if (v > QTY_MAX) { v = QTY_MAX; inp.value = v; }
+      cart[pid] = v;
+      const it = cartItems().find(x => x.p.id === pid);
+      const sumEl = document.querySelector('#cartList [data-sum="' + pid + '"]');
+      if (it && sumEl) sumEl.textContent = money(priceOf(it) * it.qty);
+    }
+    document.getElementById('cartTotalEl').textContent = money(total());
+    const c = findCust();
+    const old = c ? Number(c.debt || 0) : 0;
+    if (pay === 'nasiya' && old > 0 && !document.getElementById('debtTotalRow').hidden) {
+      document.getElementById('debtTotalEl').textContent = money(total() + old);
+    }
+    updateCartBar();
+  });
+  // Fokus ketganda: 0 yozilsa mahsulot savatdan o'chiriladi, bo'sh/noto'g'ri bo'lsa eski son qaytadi
+  document.getElementById('cartList').addEventListener('change', e => {
+    const inp = e.target.closest('.qv-inp');
+    if (!inp) return;
+    const pid = +inp.dataset.pid;
+    const v = parseInt(inp.value, 10);
+    if (v === 0) {
+      delete cart[pid];
+      renderRows();
+      recalc();
+      updateCartBar();
+      if (!Object.keys(cart).length) closeModal();
+      return;
+    }
+    if (!isFinite(v) || v < 1) { renderRows(); return; }
+    if (v > QTY_MAX) v = QTY_MAX;
+    cart[pid] = v;
+    inp.value = v;
+    const it = cartItems().find(x => x.p.id === pid);
+    const sumEl = document.querySelector('#cartList [data-sum="' + pid + '"]');
+    if (it && sumEl) sumEl.textContent = money(priceOf(it) * it.qty);
+    recalc();
+    updateCartBar();
+  });
+  // Enter bosilsa — kiritilgan son darhol saqlanadi
+  document.getElementById('cartList').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.closest('.qv-inp')) e.target.blur();
   });
 
   renderRows();
