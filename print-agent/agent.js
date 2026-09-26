@@ -284,7 +284,7 @@ function buildEscpos(r, reprint) {
   if (r.payment_method === 'nasiya') {
     const tot = r.total_with_debt_uzs != null ? Number(r.total_with_debt_uzs) : Number(r.total_uzs) + oldDebt;
     if (hasUsd) lr('Olingan Yuk:', formatUsd(usdOf(tot)) + ' ' + formatMoney(tot) + ' so`m');
-    else lr('Olingan Yuk:', formatMoney(tot) + ' сум');
+    else lr('Olingan Yuk:', formatMoney(tot) + ' so`m');
   }
   text('To`lov uslubi: ' + ({ naqd: 'Naqd', karta: 'Plastik karta', nasiya: 'Nasiya' }[r.payment_method] || 'Naqd')); nl();
 
@@ -299,7 +299,7 @@ function buildEscpos(r, reprint) {
   field('Yetkaz', r.delivery_status);
   push(0x1b, 0x61, 0x01); // center
   center('Kamchilik va xatolar uchun 3 kun ichida murojaat qiling! +998705240706');
-  center('Shafyorlar: Nizomiddin: +998935172520 ; Yaxyoxon: +998999999999');
+  center('Shafyorlar: Nizomiddin: +998935172520 ; Yaxyoxon: +998987771011');
   push(0x1b, 0x61, 0x00);
 
   nl(); nl(); nl(); nl();
