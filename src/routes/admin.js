@@ -2,6 +2,7 @@ const router = require('express').Router();
 const ExcelJS = require('exceljs');
 const { pool, q, getSettings } = require('../db');
 const { middleware, hashPin, checkPin } = require('../auth');
+const { createCustomer } = require('../customers');
 
 const anyAuth = middleware();
 const adminOnly = middleware('admin');
@@ -103,6 +104,71 @@ router.get('/customers/names', anyAuth, async (req, res, next) => {
     const { rows } = await q('SELECT name, phone, debt_uzs FROM customers ORDER BY created_at DESC LIMIT 300');
     res.json({ names: rows.map(r => ({ name: r.name, phone: r.phone, debt: Number(r.debt_uzs) })) });
   } catch (e) { next(e); }
+});
+
+/* Sotuvchi uchun xaridorlar ro'yxati — "Eski mijoz" tugmasi shundan tanlaydi.
+   Qidiruv serverda bajariladi (ism yoki telefon), shuning uchun mijozlar ko'p bo'lsa ham hammasi topiladi. */
+router.get('/customers/list', anyAuth, async (req, res, next) => {
+  try {
+    const raw = String(req.query.q || '').trim().slice(0, 60);
+    const digits = raw.replace(/\D/g, '');
+    const params = [];
+    let where = 'TRUE';
+    if (raw) {
+      params.push('%' + raw.toLowerCase() + '%');
+      where = `lower(c.name) LIKE $1`;
+      if (digits) {
+        params.push('%' + digits + '%');
+        where += ` OR regexp_replace(coalesce(c.phone, ''), '\\D', '', 'g') LIKE $${params.length}`;
+      }
+    }
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 300, 1), 1000);
+    params.push(limit);
+    const { rows } = await q(`
+      SELECT c.id, c.name, c.phone, c.debt_uzs,
+        count(v.id) FILTER (WHERE v.is_cancelled = false) AS visits,
+        to_char(max(v.created_at) AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS last_visit
+      FROM customers c
+      LEFT JOIN sales v ON v.customer_id = c.id
+      WHERE ${where}
+      GROUP BY c.id, c.name, c.phone, c.debt_uzs
+      ORDER BY max(v.created_at) DESC NULLS LAST, c.name
+      LIMIT $${params.length}`, params);
+    const total = (await q('SELECT count(*) AS c FROM customers')).rows[0];
+    res.json({
+      total: Number(total.c),
+      customers: rows.map(r => ({
+        id: r.id, name: r.name, phone: r.phone || '', debt: Number(r.debt_uzs),
+        visits: Number(r.visits), last_visit: r.last_visit
+      }))
+    });
+  } catch (e) { next(e); }
+});
+
+/* Yangi xaridor — ism va telefon bilan. Mavjud xaridorni qayta yaratib bo'lmaydi */
+router.post('/customers', anyAuth, async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const c = await createCustomer(client, {
+      name: req.body.name,
+      phone: req.body.phone,
+      sellerId: req.user.role === 'seller' ? req.user.id : null
+    });
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      customer: {
+        id: c.id, name: c.name, phone: c.phone || '', debt: Number(c.debt_uzs || 0),
+        visits: 0, last_visit: null
+      }
+    });
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(e);
+  } finally {
+    client.release();
+  }
 });
 
 /* Xaridorning to'liq tarixi: savdolar + qarz harakatlari (faqat admin) */

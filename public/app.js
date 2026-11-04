@@ -8,7 +8,8 @@ let TOKEN = localStorage.getItem('token') || '';
 let ME = null;
 let CACHE = { products: [], usd_rate: 0, shop_name: '', shop_phone: '' };
 let cart = {};          // product_id -> qty
-let custNames = null;
+let custCache = [];     // oxirgi yuklangan mijozlar ro'yxati (eski mijozni tanlash uchun)
+let custTotal = 0;      // bazadagi jami mijozlar soni
 let ADMIN_TAB = 'dash';
 
 /* ===== Yordamchilar ===== */
@@ -346,27 +347,42 @@ function updateCartBar() {
     '<button class="btn" id="btnCart">Savat ➜</button>';
 }
 
-async function ensureCustNames() {
-  if (!custNames) {
-    try { custNames = (await api('/customers/names')).names; } catch (e) { custNames = []; }
+// Mijozlarni serverdan yuklaydi (qidiruv ham serverda — hamma mijoz topiladi)
+async function loadCustomers(qv) {
+  try {
+    const d = await api('/customers/list' + (qv ? '?q=' + encodeURIComponent(qv) : ''));
+    custCache = d.customers || [];
+    custTotal = d.total || 0;
+  } catch (e) {
+    custCache = [];
+    custTotal = 0;
   }
-  return custNames;
+  return custCache;
 }
 
 async function openCart() {
   const items = cartItems();
   if (!items.length) return;
-  await ensureCustNames();
   let pay = 'naqd';
   const nasiyaPrice = {};   // product_id -> sotuvchi o'zgartirgan nasiya narxi (UZS)
   openModal(
     '<h3>🛒 Savat</h3>' +
     '<div id="cartList"></div>' +
-    '<label class="lbl">Xaridor ismi *</label>' +
-    '<input id="custName" class="inp" list="custList" placeholder="Masalan: Aziz" autocomplete="off">' +
-    '<datalist id="custList">' + (custNames || []).map(c => '<option value="' + esc(c.name) + '"' + (c.phone ? ' label="' + esc(c.phone) + '"' : '') + '>').join('') + '</datalist>' +
-    '<label class="lbl">Telefon (ixtiyoriy — eski xaridor tanlansa o\'zi chiqadi)</label>' +
-    '<input id="custPhone" class="inp" type="tel" placeholder="Masalan: 90 123 45 67" autocomplete="off">' +
+    '<label class="lbl">Xaridor *</label>' +
+    '<div class="cust-actions">' +
+    '<button type="button" class="btn ghost" id="btnOldCust">👤 Eski mijoz</button>' +
+    '<button type="button" class="btn ghost" id="btnNewCust">➕ Yangi mijoz</button>' +
+    '</div>' +
+    '<div id="custSelected" class="cust-box" hidden></div>' +
+    '<div id="custNewBox" hidden>' +
+    '<input id="newCustName" class="inp" placeholder="Ismi *" autocomplete="off">' +
+    '<input id="newCustPhone" class="inp" type="tel" inputmode="tel" placeholder="Telefon raqami * (masalan: 901234567)" autocomplete="off" style="margin-top:8px">' +
+    '<button type="button" class="btn big" id="btnCreateCust" style="margin-top:8px">✅ Mijozni yaratish</button>' +
+    '</div>' +
+    '<div id="custPicker" hidden>' +
+    '<input id="custSearch" class="inp" placeholder="🔍 Ism yoki telefon bo\'yicha izlash..." autocomplete="off">' +
+    '<div class="cust-list" id="custList"></div>' +
+    '</div>' +
     '<div class="debt-box" id="debtBox" hidden></div>' +
     '<label class="lbl">To\'lov usuli</label>' +
     '<div class="pay-select" id="paySel">' +
@@ -378,13 +394,12 @@ async function openCart() {
     '<button class="btn big" id="btnSell">✅ Sotish</button>'
   );
 
-  const nameInp = document.getElementById('custName');
-  const phoneInp = document.getElementById('custPhone');
-  let phoneAuto = false;
-  const findCust = () => {
-    const qv = nameInp.value.trim().toLowerCase();
-    return (custNames || []).find(c => c.name.toLowerCase() === qv) || null;
-  };
+  let selected = null;   // tanlangan yoki yangi yaratilgan xaridor
+  let busyCust = false;
+  const selectedEl = document.getElementById('custSelected');
+  const pickerEl = document.getElementById('custPicker');
+  const newBox = document.getElementById('custNewBox');
+  const findCust = () => selected;
   const priceOf = it => (pay === 'nasiya' && nasiyaPrice[it.p.id] != null ? nasiyaPrice[it.p.id] : it.p.price_uzs);
   const total = () => cartItems().reduce((a, it) => a + priceOf(it) * it.qty, 0);
 
@@ -423,12 +438,113 @@ async function openCart() {
     } else row.hidden = true;
   };
 
-  nameInp.oninput = () => {
-    const qv = nameInp.value.trim().toLowerCase();
-    const m = (custNames || []).find(c => c.name.toLowerCase() === qv);
-    if (m && m.phone) { phoneInp.value = m.phone; phoneAuto = true; }
-    else if (phoneAuto) { phoneInp.value = ''; phoneAuto = false; }
+  /* ---- Xaridor: eski mijozni tanlash / yangi mijoz yaratish ---- */
+  const showSelected = () => {
+    if (!selected) { selectedEl.hidden = true; selectedEl.innerHTML = ''; return; }
+    selectedEl.hidden = false;
+    selectedEl.innerHTML =
+      '<div><b>' + esc(selected.name) + '</b>' +
+      '<div class="muted sm">' + (selected.phone ? esc(selected.phone) : 'telefon kiritilmagan') +
+      (Number(selected.debt) > 0 ? ' • 📕 qarz: ' + money(selected.debt) : '') +
+      (selected.isNew ? ' • 🆕 yangi mijoz' : '') + '</div></div>' +
+      '<button type="button" class="icon-btn" id="btnClearCust" title="Boshqa mijoz tanlash">✖</button>';
+    document.getElementById('btnClearCust').onclick = () => { selected = null; showSelected(); recalc(); };
     recalc();
+  };
+
+  const renderCustList = () => {
+    const raw = document.getElementById('custSearch').value.trim();
+    const shown = custCache.length;
+    const more = !raw && custTotal > shown
+      ? '<div class="hint">Jami ' + custTotal + ' ta mijozdan oxirgi ' + shown + ' tasi ko\'rsatildi — ism yoki telefon bilan izlang</div>'
+      : '';
+    document.getElementById('custList').innerHTML =
+      (shown ? custCache.map(c =>
+        '<div class="li-row cust-pick" data-cid="' + c.id + '">' +
+        '<div><b>' + esc(c.name) + '</b>' +
+        '<div class="muted sm">' + (c.phone ? esc(c.phone) : 'telefon yo\'q') +
+        (Number(c.debt) > 0 ? ' • 📕 ' + money(c.debt) : '') +
+        ' • ' + c.visits + ' ta savdo' + (c.last_visit ? ' • oxirgi: ' + esc(c.last_visit) : '') +
+        '</div></div><span class="muted">➜</span></div>'
+      ).join('') : '<div class="empty">Mijoz topilmadi — "Yangi mijoz" tugmasidan qo\'shing</div>') + more;
+  };
+
+  let custSearchT = null;
+  let custSeq = 0;   // ketma-ket qidiruvlarda eski javob yangisini bosib ketmasin
+  const loadAndRender = async () => {
+    const seq = ++custSeq;
+    document.getElementById('custList').innerHTML = '<div class="muted sm" style="padding:12px 0">Yuklanmoqda...</div>';
+    await loadCustomers(document.getElementById('custSearch').value.trim());
+    if (seq !== custSeq) return;
+    renderCustList();
+  };
+
+  document.getElementById('btnOldCust').onclick = async () => {
+    newBox.hidden = true;
+    pickerEl.hidden = false;
+    document.getElementById('custSearch').value = '';
+    await loadAndRender();
+    document.getElementById('custSearch').focus();
+  };
+  document.getElementById('btnNewCust').onclick = () => {
+    pickerEl.hidden = true;
+    selected = null;
+    showSelected();
+    newBox.hidden = false;
+    document.getElementById('newCustName').focus();
+  };
+  document.getElementById('custSearch').oninput = () => {
+    clearTimeout(custSearchT);
+    custSearchT = setTimeout(loadAndRender, 250);
+  };
+  document.getElementById('custList').onclick = e => {
+    const row = e.target.closest('.cust-pick');
+    if (!row) return;
+    const c = custCache.find(x => x.id === +row.dataset.cid);
+    if (!c) return;
+    selected = c;
+    pickerEl.hidden = true;
+    newBox.hidden = true;
+    document.getElementById('custSearch').value = '';
+    showSelected();
+  };
+
+  // Yangi mijozni server orqali yaratadi — dublikatni server rad etadi
+  const createCustomer = async () => {
+    const nm = document.getElementById('newCustName').value.trim();
+    const ph = document.getElementById('newCustPhone').value.trim();
+    if (!nm) { toast('Yangi mijoz ismini kiriting'); return null; }
+    if (!ph) { toast('Yangi mijoz telefon raqamini kiriting'); return null; }
+    if (busyCust) return null;
+    busyCust = true;
+    const btn = document.getElementById('btnCreateCust');
+    btn.disabled = true;
+    try {
+      const r = await api('/customers', { method: 'POST', body: { name: nm, phone: ph } });
+      selected = { ...r.customer, isNew: true };
+      custCache = [];   // ro'yxat keyingi ochilishda yangilanadi
+      newBox.hidden = true;
+      document.getElementById('newCustName').value = '';
+      document.getElementById('newCustPhone').value = '';
+      showSelected();
+      toast('Yangi mijoz yaratildi ✅');
+      return selected;
+    } catch (e) {
+      toast(e.message);
+      return null;
+    } finally {
+      busyCust = false;
+      btn.disabled = false;
+    }
+  };
+  document.getElementById('btnCreateCust').onclick = createCustomer;
+
+  // Sotishdan oldin: tanlangan mijoz, bo'lmasa yangi mijoz maydonlaridan yaratiladi
+  const resolveCustomer = async () => {
+    if (selected) return selected;
+    if (!newBox.hidden) return await createCustomer();
+    toast('Xaridorni tanlang: "Eski mijoz" yoki "Yangi mijoz"');
+    return null;
   };
   document.getElementById('paySel').onclick = e => {
     const b = e.target.closest('.pay-btn');
@@ -528,11 +644,11 @@ async function openCart() {
   recalc();
 
   document.getElementById('btnSell').onclick = async function () {
-    const cname = nameInp.value.trim();
-    if (!cname) return toast('Xaridor ismini kiriting');
     if (!Object.keys(cart).length) return;
     this.disabled = true;
     try {
+      const cust = await resolveCustomer();
+      if (!cust) { this.disabled = false; return; }
       const d = await api('/sales', {
         method: 'POST',
         body: {
@@ -541,14 +657,13 @@ async function openCart() {
             if (pay === 'nasiya' && nasiyaPrice[+k] != null) o.price_uzs = nasiyaPrice[+k];
             return o;
           }),
-          customer_name: cname,
-          customer_phone: phoneInp.value.trim(),
+          customer_id: cust.id,
           payment_method: pay,
           script: SCRIPT
         }
       });
       cart = {};
-      custNames = null;
+      custCache = [];
       updateCartBar();
       openSuccess(d.receipt);
     } catch (e) {
@@ -1217,6 +1332,16 @@ async function renderSettingsTab(el) {
     '<button class="btn ghost" id="btnPT">🖨 Printer test</button>' +
     '<div style="height:4px"></div>' +
     '<button class="btn big" id="stSave">Saqlash</button></div>' +
+    '<div class="panel"><h3 class="sec-t" style="margin-top:0">💾 Backup (zaxira nusxa)</h3>' +
+    '<div class="hint" style="margin-top:0">Export — butun baza (mahsulotlar, savdolar, xaridorlar, qarzlar, sotuvchilar va sozlamalar) bitta .json faylga tushadi. Import — shu fayldan bazani tiklaydi va hozirgi ma\'lumotlarni almashtiradi.</div>' +
+    '<div class="filters" style="margin-top:10px">' +
+    '<button class="btn" id="btnBackupExp">⬇️ Backup yuklab olish</button>' +
+    '<button class="btn ghost" id="btnBackupImp">⬆️ Backup faylni tanlash</button>' +
+    '</div>' +
+    '<input type="file" id="bkFile" accept=".json,application/json" hidden>' +
+    '<div class="hint" id="bkInfo" hidden></div>' +
+    '<button class="btn danger big" id="btnBackupApply" hidden style="margin-top:8px">⚠️ Tiklash (ma\'lumotlar almashtiriladi)</button>' +
+    '</div>' +
     '<div class="panel"><h3 class="sec-t" style="margin-top:0">Admin parolini o\'zgartirish</h3>' +
     '<label class="lbl">Eski parol</label><input class="inp" id="pwOld" type="password">' +
     '<label class="lbl">Yangi parol (kamida 6 belgi)</label><input class="inp" id="pwNew" type="password">' +
@@ -1239,6 +1364,68 @@ async function renderSettingsTab(el) {
       toast('Saqlandi ✅');
     } catch (e) { toast(e.message); }
   };
+  /* ---- Backup: export va import ---- */
+  let pendingBackup = null;
+  const bkFile = document.getElementById('bkFile');
+  const bkInfo = document.getElementById('bkInfo');
+  const bkApply = document.getElementById('btnBackupApply');
+
+  document.getElementById('btnBackupExp').onclick = () => {
+    const d = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tashkent' }).replace(/[: ]/g, '-').slice(0, 16);
+    downloadFile('/backup/export', 'savdo-backup-' + d + '.json');
+  };
+  document.getElementById('btnBackupImp').onclick = () => bkFile.click();
+
+  bkFile.onchange = async function () {
+    const f = this.files[0];
+    this.value = '';
+    pendingBackup = null;
+    bkApply.hidden = true;
+    bkInfo.hidden = false;
+    if (!f) return;
+    bkInfo.textContent = 'Fayl o\'qilmoqda...';
+    let data;
+    try {
+      data = JSON.parse(await f.text());
+    } catch (e) {
+      bkInfo.textContent = '❌ Faylni o\'qib bo\'lmadi — bu .json backup fayli emas.';
+      return;
+    }
+    if (!data || data.app !== 'savdo' || !data.tables || typeof data.tables !== 'object') {
+      bkInfo.textContent = '❌ Bu savdo backup fayli emas. Sozlamalar → "Backup yuklab olish" orqali olingan faylni tanlang.';
+      return;
+    }
+    const c = data.counts || {};
+    const when = data.exported_at ? new Date(data.exported_at).toLocaleString('sv-SE', { timeZone: 'Asia/Tashkent' }).slice(0, 16) : '—';
+    bkInfo.textContent = '📄 ' + f.name + ' • ' + when + ' • sotuvchi: ' + (c.sellers || 0) +
+      ', mahsulot: ' + (c.products || 0) + ', xaridor: ' + (c.customers || 0) +
+      ', savdo: ' + (c.sales || 0) + ', qarz yozuvi: ' + (c.customer_payments || 0);
+    pendingBackup = data;
+    bkApply.hidden = false;
+  };
+
+  bkApply.onclick = async function () {
+    if (!pendingBackup) return toast('Avval backup faylini tanlang');
+    const word = await askModal('⚠️ Barcha hozirgi ma\'lumotlar backup bilan almashtiriladi. Tasdiqlash uchun TIKLA deb yozing', {
+      input: true, placeholder: 'TIKLA', okText: 'Tiklash', danger: true
+    });
+    if (word === null) return;
+    if (String(word).trim().toUpperCase() !== 'TIKLA') return toast('Tasdiqlash so\'zi xato — bekor qilindi');
+    this.disabled = true;
+    try {
+      const r = await api('/backup/import', { method: 'POST', body: pendingBackup });
+      custCache = [];
+      pendingBackup = null;
+      bkApply.hidden = true;
+      bkInfo.hidden = true;
+      toast('Tiklandi ✅ ' + (r.imported.sales || 0) + ' ta savdo, ' + (r.imported.customers || 0) + ' ta xaridor');
+      renderTab('settings');
+    } catch (e) {
+      toast(e.message);
+      this.disabled = false;
+    }
+  };
+
   document.getElementById('btnPT').onclick = async function () {
     this.disabled = true;
     try {

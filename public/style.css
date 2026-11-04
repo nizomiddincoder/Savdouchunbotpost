@@ -1,4 +1,6 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* CSS display (flex/grid) `hidden` atributini bekor qilmasligi uchun */
+[hidden] { display: none !important; }
 :root {
   --bg: #f1f4f9; --card: #fff; --ink: #111827; --muted: #6b7280;
   --acc: #0e9f6e; --acc-d: #057a55; --danger: #dc2626; --line: #e5e7eb; --r: 14px;
@@ -129,6 +131,21 @@ input, select { font: inherit; color: var(--ink); }
 .inp { width: 100%; padding: 11px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); }
 .inp:focus { outline: none; border-color: var(--acc); }
 .total-row { display: flex; justify-content: space-between; padding: 14px 0 4px; font-size: 17px; }
+
+/* Xaridor tanlash (eski / yangi mijoz) */
+.cust-actions { display: flex; gap: 8px; }
+.cust-actions .btn { flex: 1; padding: 11px 6px; font-size: 14px; white-space: nowrap; }
+.cust-box {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 10px; padding: 10px 12px; border-radius: 12px;
+  background: var(--soft2); border: 1px solid var(--line);
+}
+.cust-list {
+  max-height: 250px; overflow-y: auto; margin-top: 8px; padding: 0 10px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+}
+.cust-pick { cursor: pointer; }
+.cust-pick:active { background: var(--soft); }
 
 /* Nasiya (qarz) elementlari */
 .debt-box {

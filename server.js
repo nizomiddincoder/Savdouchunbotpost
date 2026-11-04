@@ -23,12 +23,12 @@ const authRoutes = require('./src/routes/auth');
 const productRoutes = require('./src/routes/products');
 const saleRoutes = require('./src/routes/sales');
 const adminRoutes = require('./src/routes/admin');
+const backupRoutes = require('./src/routes/backup');
 const { initBot } = require('./src/bot');
 const { startPinRecovery } = require('./src/pin-view');
 const { initWs } = require('./src/ws');
 
 const app = express();
-app.use(express.json({ limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Healthcheck — baza holatisiz ham javob beradi (Railway servisni tirik deb ko'radi)
@@ -41,6 +41,11 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+
+// Backup o'zining katta JSON limitidan foydalanadi — shuning uchun umumiy parserdan oldin ulanadi
+app.use('/api/backup', backupRoutes);
+
+app.use(express.json({ limit: '25mb' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);

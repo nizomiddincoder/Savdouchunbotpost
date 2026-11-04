@@ -3,6 +3,7 @@ const { pool, q, getSettings } = require('../db');
 const { middleware } = require('../auth');
 const { broadcast } = require('../ws');
 const { notifySale, notifyCancel } = require('../bot');
+const { cleanName, cleanPhone, getOrCreateForSale } = require('../customers');
 
 const anyAuth = middleware();
 const adminOnly = middleware('admin');
@@ -44,45 +45,39 @@ async function buildReceipt(saleId) {
 }
 
 const PAY_METHODS = ['naqd', 'karta', 'nasiya'];
-function cleanPhone(v) {
-  const ph = String(v || '').replace(/[^\d+]/g, '');
-  if (!ph) return null;
-  if (!/^\+?\d{7,15}$/.test(ph)) throw new Error('Telefon raqam noto\'g\'ri (masalan: 901234567 yoki +998901234567)');
-  return ph;
-}
 
 // Yangi savdo
 router.post('/', anyAuth, async (req, res, next) => {
   try {
     if (req.user.role !== 'seller') throw new Error('Savdoni faqat sotuvchi amalga oshiradi');
     const { items, customer_name, customer_phone } = req.body;
-    const cname = String(customer_name || '').trim().replace(/\s+/g, ' ');
-    if (!cname) throw new Error('Xaridor ismini kiriting');
+    // Sotuvchi "Eski mijoz" ro'yxatidan tanlagan bo'lsa — customer_id yuboriladi
+    const customerId = req.body.customer_id ? parseInt(req.body.customer_id, 10) : null;
+    const cname = cleanName(customer_name);
+    if (!customerId && !cname) throw new Error('Xaridorni tanlang yoki yangi xaridor qo\'shing');
     if (!Array.isArray(items) || !items.length) throw new Error('Savat bo\'sh');
     const pay = PAY_METHODS.includes(req.body.payment_method) ? req.body.payment_method : 'naqd';
     // Sotuvchi tanlagan yozuv (lotin/kirill) — chek shu yozuvda chiqadi
     const rscript = req.body.script === 'cyrillic' ? 'cyrillic' : 'latin';
-    const phone = cleanPhone(customer_phone);
+    const phone = customerId ? null : cleanPhone(customer_phone, false);
     const st = await getSettings();
     const rate = Number(st.usd_rate);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      let c = (await client.query(`SELECT id FROM customers WHERE lower(btrim(regexp_replace(name, '\\s+', ' ', 'g'))) = lower($1)`, [cname])).rows[0];
-      if (!c) {
-        try {
-          c = (await client.query('INSERT INTO customers (name, phone, first_seller_id) VALUES ($1, $2, $3) RETURNING id', [cname, phone, req.user.id])).rows[0];
-        } catch (e) {
-          // Ikki sotuvchi bir vaqtda bir xil xaridor kiritganda
-          if (e.code === '23505') c = (await client.query(`SELECT id FROM customers WHERE lower(btrim(regexp_replace(name, '\\s+', ' ', 'g'))) = lower($1)`, [cname])).rows[0];
-          else throw e;
-        }
-      } else if (phone) {
-        // Mavjud xaridorning raqami yangilansa — saqlaymiz
-        await client.query('UPDATE customers SET phone = $1 WHERE id = $2 AND phone IS DISTINCT FROM $1', [phone, c.id]);
+      let c;
+      if (customerId) {
+        // Ro'yxatdan tanlangan xaridor — ism/telefon bazadan olinadi
+        const found = (await client.query('SELECT id, name, phone, debt_uzs FROM customers WHERE id = $1', [customerId])).rows[0];
+        if (!found) throw new Error('Tanlangan xaridor topilmadi — ro\'yxatni yangilab, qaytadan tanlang');
+        c = found;
+      } else {
+        // Orqaga moslik: ism bo'yicha mavjudini topadi yoki yaratadi (telefon dublikati tekshiriladi)
+        c = await getOrCreateForSale(client, { name: cname, phone, sellerId: req.user.id });
       }
+      const custName = c.name;
       // Xaridorning eski nasiyasi (har safar ko'rsatiladi, faqat nasiya savdosida qarzga qo'shiladi)
-      const oldDebt = Number((await client.query('SELECT debt_uzs FROM customers WHERE id = $1', [c.id])).rows[0].debt_uzs || 0);
+      const oldDebt = Number(c.debt_uzs || 0);
       let total = 0;
       const lines = [];
       for (const it of items) {
@@ -104,7 +99,7 @@ router.post('/', anyAuth, async (req, res, next) => {
       const sale = (await client.query(
         `INSERT INTO sales (seller_id, customer_id, customer_name, total_uzs, usd_rate, payment_method, old_debt_uzs, receipt_script)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [req.user.id, c.id, cname, total, rate, pay, oldDebt, rscript])).rows[0];
+        [req.user.id, c.id, custName, total, rate, pay, oldDebt, rscript])).rows[0];
       for (const l of lines) {
         await client.query(
           `INSERT INTO sale_items (sale_id, product_id, product_name, qty, price_orig, currency, price_uzs, line_total_uzs, base_price_uzs)

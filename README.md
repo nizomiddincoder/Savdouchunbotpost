@@ -77,10 +77,24 @@ Baza: **Railway PostgreSQL**. Rasmlar ham bazada saqlanadi.
 - USD kursini admin kiritadi — dollardagi mahsulotlar narhi shu zahoti yangi kurs bilan hisoblanadi
 - Chek: do'kon nomi, telefon, ketma-ket raqam, sana/vaqt, sotuvchi, xaridor + **qayta chop etish** tugmasi
 - Savdoni bekor qilish: sotuvchi o'ziniki, admin xohlaganini — kim, qachon, nima sababdan saqlanadi
+- **Xaridor kiritish (savatda):** ikkita tugma — **👤 Eski mijoz** (barcha mijozlar ro'yxati, ism/telefon bo'yicha qidiruv, eski nasiya ko'rinadi) va **➕ Yangi mijoz** (ism + telefon). Bir xil ismli yoki bir xil telefonli mijozni ikkinchi marta yaratib bo'lmaydi — dastur "Eski mijoz"ni tanlashni taklif qiladi
+- **Backup (Sozlamalar bo'limi):** ⬇️ butun bazani (mahsulot rasmlari bilan) bitta `.json` faylga yuklab olish va ⬆️ shu fayldan tiklash — bazani boshqa kompyuterga/localga ko'chirish uchun
 - Sotuvchi kabineti (KPI): bugun/oy savdolari, top mahsulotlar, oxirgi savdolar
 - Dashboard: kunlik/oylik summa, sotuvchi reytingi, top mahsulotlar, yangi/qaytgan xaridorlar
 - Excel hisobot (kunlik/oylik), 4 varaq: Savdolar, Mahsulotlar, Sotuvchilar, Xaridorlar
 - Har savdo haqida Telegram guruhiga bildirishnoma
+
+## Backup va ko'chirish (import / export)
+
+Admin panel → **Sozlamalar** → **💾 Backup** bo'limi:
+
+1. **⬇️ Backup yuklab olish** — `savdo-backup-YYYY-MM-DD-HH-MM.json` fayli yuklab olinadi. Ichida: sotuvchilar, mahsulotlar (rasmlar base64), xaridorlar, savdolar, savdo qatorlari, qarz harakatlari va sozlamalar.
+2. **⬆️ Backup faylni tanlash** — fayl tekshiriladi va sanasi/hajmi ko'rsatiladi.
+3. **⚠️ Tiklash** — tasdiqlash uchun `TIKLA` deb yoziladi. Hozirgi ma'lumotlar to'liq almashtiriladi (tranzaksiya ichida: xato bo'lsa hech narsa o'zgarmaydi), ID'lar ketma-ketligi ham tiklanadi.
+
+Import qilingandan keyin sozlamalar va admin paroli backupdagidek bo'ladi (joriy kirish sessiyasi uzilmaydi).
+
+⚠️ Backup faylida admin parolining hash'i va baza kaliti bor — shuning uchun faylni begona odamga bermang va ochiq joyda saqlamang. Backup/import faqat admin uchun.
 
 ## Muhim eslatmalar
 
