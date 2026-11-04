@@ -328,6 +328,14 @@ router.put('/settings', adminOnly, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* Print-agent holati — do'kondagi agent ulanganmi (chek chiqyaptimi) */
+router.get('/printer/status', anyAuth, async (req, res, next) => {
+  try {
+    const { agentOnline } = require('../ws');
+    res.json({ online: agentOnline() });
+  } catch (e) { next(e); }
+});
+
 /* Print-agent test cheki — ulangan agentga { type: 'test-print' } yuboradi */
 router.post('/printer/test', anyAuth, async (req, res, next) => {
   try {

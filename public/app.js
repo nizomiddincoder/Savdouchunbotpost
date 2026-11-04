@@ -1328,7 +1328,8 @@ async function renderSettingsTab(el) {
     '<label class="lbl">Windows printer nomi (USB XPrinter uchun)</label>' +
     '<input class="inp" id="stPName" value="' + esc(s.printer_name || '') + '" placeholder="Masalan: XPrinter_58 yoki POS-80">' +
     '<div class="hint">Do\'kondagi Windows kompyuterda Printers &amp; scanners\'dagi aniq nomi yoziladi. Bo\'sh bo\'lsa agent .env dagi nomni ishlatadi.</div>' +
-    '<div style="height:12px"></div>' +
+    '<div class="hint" id="prStatus">🖨 Print-agent: tekshirilmoqda...</div>' +
+    '<div style="height:8px"></div>' +
     '<button class="btn ghost" id="btnPT">🖨 Printer test</button>' +
     '<div style="height:4px"></div>' +
     '<button class="btn big" id="stSave">Saqlash</button></div>' +
@@ -1425,6 +1426,21 @@ async function renderSettingsTab(el) {
       this.disabled = false;
     }
   };
+
+  // Print-agent (do'kondagi kompyuter) ulanganmi — chek avtomatik chiqadimi
+  const showPrinterStatus = async () => {
+    const box = document.getElementById('prStatus');
+    if (!box) return;
+    try {
+      const d = await api('/printer/status');
+      box.innerHTML = d.online
+        ? '🖨 Print-agent: <b style="color:var(--ok-ink)">ulangan</b> — savdodan keyin chek avtomatik chiqadi'
+        : '🖨 Print-agent: <b style="color:var(--no-ink)">ulanmagan</b> — do\'kondagi kompyuterda "PRINTERNI ISHGA TUSHIRISH.bat" ishlab turishi kerak';
+    } catch (e) {
+      box.textContent = '🖨 Print-agent holatini olib bo\'lmadi';
+    }
+  };
+  showPrinterStatus();
 
   document.getElementById('btnPT').onclick = async function () {
     this.disabled = true;

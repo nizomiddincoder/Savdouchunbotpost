@@ -111,9 +111,28 @@ router.post('/', anyAuth, async (req, res, next) => {
         await client.query('UPDATE customers SET debt_uzs = debt_uzs + $1 WHERE id = $2', [total, c.id]);
       }
       await client.query('COMMIT');
-      const receipt = await buildReceipt(sale.id);
-      broadcast({ type: 'print', receipt });
-      notifySale(receipt).catch(() => {});
+      // Savdo bazaga yozildi. Chekni tayyorlash yoki printerga yuborishda xato bo'lsa
+      // savdo baribir saqlanadi — aks holda sotuvchi xato ko'rib qayta sotadi va
+      // dublikat savdo paydo bo'ladi.
+      let receipt = null;
+      try {
+        receipt = await buildReceipt(sale.id);
+      } catch (e) {
+        console.error('Chek tayyorlashda xato (savdo saqlandi, chek printerga yuborilmadi):', e.message);
+      }
+      if (receipt) {
+        try { broadcast({ type: 'print', receipt }); } catch (e) { console.error('Chekni agentga yuborishda xato:', e.message); }
+        notifySale(receipt).catch(() => {});
+      } else {
+        // Chek to'liq yig'ilmasa ham sotuvchiga minimal ma'lumot qaytaramiz
+        receipt = {
+          receipt_no: sale.id, customer_name: custName, customer_phone: (c && c.phone) || '',
+          payment_method: pay, usd_rate: rate, total_uzs: total, old_debt_uzs: oldDebt,
+          total_with_debt_uzs: total + oldDebt, is_cancelled: false,
+          items: lines.map(l => ({ name: l.p.name, qty: l.qty, price_uzs: l.priceUzs, line_total_uzs: l.lineTotal })),
+          receipt_script: rscript === 'cyrillic' ? 'cyrillic' : 'latin'
+        };
+      }
       res.json({ ok: true, receipt });
     } catch (e) {
       await client.query('ROLLBACK');

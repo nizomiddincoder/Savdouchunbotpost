@@ -349,29 +349,30 @@ function printWindows(name, buf) {
   return new Promise((resolve, reject) => {
     const tmp = path.join(os.tmpdir(), 'chek-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.bin');
     try { fs.writeFileSync(tmp, buf); } catch (e) { return reject(new Error('Vaqtinchalik fayl yozib bo\'lmadi: ' + e.message)); }
-    const done = (err, code) => { fs.unlink(tmp, () => {}); err ? reject(err) : resolve(); };
+    const done = err => { fs.unlink(tmp, () => {}); err ? reject(err) : resolve(); };
+    const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS_SCRIPT, '-PrinterName', name, '-FilePath', tmp];
+    if (/^(1|true|yes)$/i.test(String(process.env.PRINTER_NO_QUEUE_CLEAN || ''))) args.push('-NoClean');
     console.log('[PRINT] Sending to Windows printer...');
     console.log('[PRINT] Printer name: ' + name);
-    execFile('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', PS_SCRIPT, '-PrinterName', name, '-FilePath', tmp],
-      { timeout: 30000, windowsHide: true },
-      (err, stdout, stderr) => {
-        const out = String(stdout || '');
-        if (!err && /PRINTED/.test(out)) {
-          console.log('[PRINT] Print job completed');
-          return done(null);
-        }
-        const code = err ? err.code : '';
-        if (code === 3 || /OPENFAIL/.test(out)) {
-          return done(new Error('Windows printer topilmadi: "' + name + '". Printers & scanners dagi aniq nomini PRINTER_NAME ga yozing.'));
-        }
-        if (code === 5 || /EMPTYFILE/.test(out)) return done(new Error('Chop etish fayli bo\'sh'));
-        done(new Error('Windows chop etish xatosi (kod ' + (code || '?') + '): ' + (psError(stderr) || out.trim() || 'nomalum')));
-      });
+    execFile('powershell.exe', args, { timeout: 60000, windowsHide: true }, (err, stdout, stderr) => {
+      const out = String(stdout || '');
+      const lines = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      const cleaned = lines.find(l => /^CLEANED /.test(l));
+      if (cleaned) console.log('[PRINT] Navbatdagi tiqilgan ish tozalandi: ' + cleaned.replace('CLEANED ', '') + ' ta');
+      const status = lines.find(l => /^STATUS /.test(l));
+      if (status) console.log('[PRINT] Printer holati: ' + status.replace('STATUS ', ''));
+      const code = err ? err.code : 0;
+      if (!err && /PRINTED/.test(out)) { console.log('[PRINT] Print job completed'); return done(null); }
+      if (code === 'ETIMEDOUT' || (err && err.killed)) return done(new Error('PowerShell 60 soniyada tugamadi — printer yoki spooler javob bermayapti'));
+      if (code === 3 || /OPENFAIL/.test(out)) return done(new Error('Windows printer topilmadi: "' + name + '". Printers & scanners dagi aniq nomini PRINTER_NAME ga yozing.'));
+      if (code === 5 || /EMPTYFILE/.test(out)) return done(new Error('Chop etish fayli bo\'sh'));
+      if (code === 7 || /STUCK/.test(out)) return done(new Error('Chek spooler navbatida tiqilib qoldi (printer qog\'ozi, kabeli va holatini tekshiring)'));
+      done(new Error('Windows chop etish xatosi (kod ' + (code || '?') + '): ' + (psError(stderr) || out.trim() || 'nomalum')));
+    });
   });
 }
 
-/* Windows'dagi o'rnatilgan printerni ro'yxati (xato bo'lsa yordam uchun) */
+/* Windows'dagi o'rnatilgan printerlar ro'yxati (xato bo'lsa yordam uchun) */
 function listWindowsPrinters() {
   return new Promise(resolve => {
     execFile('powershell.exe',
@@ -384,61 +385,209 @@ function listWindowsPrinters() {
   });
 }
 
-/* ===== Umumiy yuborish ===== */
+/* ===== Tarmoq (9100), Windows ulash (share) va konsol rejimlari ===== */
+function printNetwork(buf, r) {
+  return new Promise((resolve, reject) => {
+    const s = net.connect(PORT, HOST);
+    const t = setTimeout(() => { try { s.destroy(); } catch (e) {} reject(new Error('Printer ' + HOST + ':' + PORT + ' javob bermadi (timeout)')); }, 10000);
+    s.on('connect', () => {
+      s.end(buf, () => {
+        clearTimeout(t);
+        console.log('[PRINT] Print job completed (tarmoq):', HOST + ':' + PORT, 'chek', r.receipt_no);
+        resolve();
+      });
+    });
+    s.on('error', e => { clearTimeout(t); reject(new Error('Printer xatosi: ' + e.message)); });
+  });
+}
+
+function printShare(buf, r) {
+  return new Promise((resolve, reject) => {
+    const tmp = path.join(os.tmpdir(), 'chek-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.bin');
+    try { fs.writeFileSync(tmp, buf); } catch (e) { return reject(new Error('Vaqtinchalik fayl yozib bo\'lmadi: ' + e.message)); }
+    execFile('cmd', ['/c', 'copy', '/b', tmp, SHARE], { timeout: 20000, windowsHide: true }, err => {
+      fs.unlink(tmp, () => {});
+      if (err) return reject(new Error('Windows ulash printeri xatosi (SHARE nomini tekshiring): ' + err.message));
+      console.log('[PRINT] Print job completed (Windows ulash):', SHARE, 'chek', r.receipt_no);
+      resolve();
+    });
+  });
+}
+
+/* ===== Umumiy yuborish — xato bo'lsa THROW qiladi (navbat qayta urinadi) ===== */
 async function printBuf(buf, r) {
   console.log('[PRINT] ESC/POS buffer size: ' + buf.length + ' bytes');
-  if (MODE === 'windows') {
+  if (MODE === 'windows') return printWindows(PRINTER_NAME, buf);
+  if (MODE === 'network') return printNetwork(buf, r);
+  if (MODE === 'share' && SHARE) return printShare(buf, r);
+  console.log('[PRINT] (console rejimi — chop etilmadi) Chek', r.receipt_no, formatMoney(r.total_uzs), "so'm");
+}
+
+/* ===== Chop etish navbati =====
+   Avvalgi kod chekni "otib yuborardi": bitta xato (spooler band, printer uyg'onishi,
+   PowerShell timeout) bo'lsa chek jimgina yo'qolardi va ketma-ket savdolarda bir
+   nechta PowerShell bir vaqtda ishga tushib, spooler'ni tiqib qo'yardi — aynan
+   "2 chek chiqdi, keyin hech narsa chiqmayapti" holati. Endi:
+   - cheklar navbatga turadi va KETMA-KET yuboriladi (bir vaqtda bitta ish);
+   - xato bo'lsa bir necha marta qayta uriniladi (1.5s, 6s, 13s, ... ~2 daqiqa);
+   - chop etilmagan chek diskda saqlanadi va agent qayta ishga tushganda yuboriladi. */
+const QUEUE_DIR = path.join(__dirname, 'queue');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function createQueue(send, opts = {}) {
+  const say = opts.log || (() => {});
+  const dir = opts.dir || QUEUE_DIR;
+  const maxAttempts = opts.maxAttempts || 8;
+  const backoff = opts.backoff || (n => Math.min(30000, 1500 * n * n));
+  const maxQueued = opts.maxQueued || 50;
+  const persistOf = j => (opts.persist ? !!opts.persist(j) : false);
+  const list = [];
+  let running = false;
+
+  const fileOf = j => path.join(dir, j.id + '.json');
+  const label = j => j.kind === 'test' ? 'TEST' : (j.receipt && j.receipt.receipt_no != null ? j.receipt.receipt_no : '?');
+
+  function ensureDir() {
+    try { fs.mkdirSync(dir, { recursive: true }); return true; } catch (e) { return false; }
+  }
+  function save(j) {
+    if (!persistOf(j) || !ensureDir()) return;
     try {
-      await printWindows(PRINTER_NAME, buf);
-    } catch (e) {
-      console.error('[PRINT ERROR] ' + e.message);
-      if (/topilmadi/.test(e.message)) {
-        const list = await listWindowsPrinters();
-        if (list.length) {
-          console.error('[PRINT ERROR] Windows\'dagi printerlar:');
-          for (const p of list) {
-            const hit = /xprinter|pos|thermal|58|80/i.test(p) ? '  <=== ehtimol shu' : '';
-            console.error('   - "' + p + '"' + hit);
+      fs.writeFileSync(fileOf(j), JSON.stringify({ receipt: j.receipt, reprint: !!j.reprint, createdAt: j.createdAt }));
+    } catch (e) { say('[PRINT ERROR] Chekni diskka saqlab bo\'lmadi: ' + e.message); }
+  }
+  function unsave(j) {
+    if (!persistOf(j)) return;
+    try { fs.unlinkSync(fileOf(j)); } catch (e) { /* allaqachon yo'q */ }
+  }
+
+  function add(job) {
+    const j = {
+      id: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7),
+      createdAt: Date.now(),
+      kind: job.kind || 'print',
+      receipt: job.receipt,
+      reprint: !!job.reprint,
+      maxAttempts: job.maxAttempts || maxAttempts
+    };
+    while (list.length >= maxQueued) {
+      const old = list.shift();
+      unsave(old);
+      say('[PRINT ERROR] Navbat to\'lib ketdi — eng eski chek o\'chirildi (chek ' + label(old) + ')');
+    }
+    save(j);
+    list.push(j);
+    start();
+    return j;
+  }
+
+  async function run() {
+    if (running) return;
+    running = true;
+    try {
+      while (list.length) {
+        const job = list[0];
+        let ok = false;
+        let lastErr = '';
+        const attempts = job.maxAttempts || maxAttempts;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+          try {
+            await send(job);
+            ok = true;
+            break;
+          } catch (e) {
+            lastErr = e.message;
+            say('[PRINT ERROR] Chek ' + label(job) + ' — urinish ' + attempt + '/' + attempts + ': ' + e.message);
+            if (attempt < attempts) await sleep(backoff(attempt));
           }
-          console.error('[PRINT ERROR] Kerakli nomni print-agent/.env ga yozing: PRINTER_NAME=<yuqoridagi aniq nom>');
+        }
+        list.shift();
+        if (ok) {
+          unsave(job);
+          say('[PRINT] Chek chop etildi: ' + label(job));
+        } else {
+          say('[PRINT ERROR] Chek ' + label(job) + ' chop etilmadi: ' + lastErr);
+          if (persistOf(job)) say('[PRINT ERROR] Chek diskda saqlandi (print-agent/queue) — agent qayta ishga tushganda qayta yuboriladi');
+          if (opts.onGiveUp) { try { await opts.onGiveUp(job, lastErr); } catch (e) { /* ignore */ } }
         }
       }
+    } finally {
+      running = false;
     }
-  } else if (MODE === 'network') {
-    const s = net.connect(PORT, HOST, () => {
-      s.write(buf);
-      s.end();
-      console.log('[PRINT] Print job completed (tarmoq):', HOST + ':' + PORT, 'chek', r.receipt_no);
-    });
-    s.on('error', e => console.error('[PRINT ERROR] Printer xatosi:', e.message));
-  } else if (MODE === 'share' && SHARE) {
-    const tmp = path.join(os.tmpdir(), 'chek-' + Date.now() + '.bin');
-    fs.writeFileSync(tmp, buf);
-    execFile('cmd', ['/c', 'copy', '/b', tmp, SHARE], err => {
-      if (err) console.error('[PRINT ERROR] Windows ulash printeri xatosi (SHARE nomini tekshiring):', err.message);
-      else console.log('[PRINT] Print job completed (Windows ulash):', SHARE, 'chek', r.receipt_no);
-      fs.unlink(tmp, () => {});
-    });
-  } else {
-    console.log('[PRINT] (console rejimi — chop etilmadi) Chek', r.receipt_no, formatMoney(r.total_uzs), "so'm");
   }
+
+  function start() {
+    run().catch(e => say('[PRINT ERROR] Navbat xatosi: ' + (e && e.message)));
+  }
+
+  function loadLeftovers() {
+    if (!opts.persist || !ensureDir()) return 0;
+    let files = [];
+    try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')); } catch (e) { return 0; }
+    const items = [];
+    const now = Date.now();
+    for (const f of files) {
+      const p = path.join(dir, f);
+      let d;
+      try { d = JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { try { fs.unlinkSync(p); } catch (_) { /* ignore */ } continue; }
+      const t = typeof d.createdAt === 'number' ? d.createdAt : Date.parse(d.createdAt);
+      // 3 kundan eski yoki buzilgan yozuvlar o'chiriladi
+      if (!d.receipt || !t || now - t > 3 * 24 * 3600 * 1000) { try { fs.unlinkSync(p); } catch (e) { /* ignore */ } continue; }
+      items.push({ id: f.replace(/\.json$/, ''), createdAt: t, kind: 'print', receipt: d.receipt, reprint: !!d.reprint, maxAttempts });
+    }
+    items.sort((a, b) => a.createdAt - b.createdAt);
+    const keep = items.slice(-20);
+    for (const it of items.slice(0, Math.max(0, items.length - 20))) { try { fs.unlinkSync(fileOf(it)); } catch (e) { /* ignore */ } }
+    keep.forEach(j => list.push(j));
+    return keep.length;
+  }
+
+  async function idle() {
+    while (running || list.length) await sleep(200);
+  }
+
+  return { add, run, start, idle, loadLeftovers, size: () => list.length };
 }
+
+const QUEUE = createQueue(
+  job => job.kind === 'test'
+    ? printBuf(buildTestReceipt(), { receipt_no: 'TEST' })
+    : printBuf(buildEscpos(job.receipt, job.reprint), job.receipt || {}),
+  {
+    log: msg => (/ERROR/.test(msg) ? console.error(msg) : console.log(msg)),
+    persist: job => job.kind === 'print' && MODE !== 'console',
+    onGiveUp: async () => {
+      if (MODE !== 'windows') return;
+      const list = await listWindowsPrinters();
+      if (!list.length) {
+        console.error('[PRINT ERROR] Windows\'da printer topilmadi. USB kabel, printer quvvati va Windows\'da o\'rnatilganini tekshiring.');
+        return;
+      }
+      console.error('[PRINT ERROR] Windows\'dagi printerlar:');
+      for (const p of list) {
+        const hit = /xprinter|pos|thermal|58|80/i.test(p) ? '  <=== ehtimol shu' : '';
+        console.error('   - "' + p + '"' + hit);
+      }
+      console.error('[PRINT ERROR] Kerakli nomni admin panel > Sozlamalar > "Windows printer nomi" ga yozing (yoki print-agent/.env: PRINTER_NAME=...)');
+    }
+  }
+);
 
 /* Server config xabari: { type: 'config', config: { mode, printerName, ... } } */
 function applyConfig(cfg) {
   if (!cfg || typeof cfg !== 'object') return;
   if (cfg.mode) {
-    let m = String(cfg.mode).toLowerCase();
+    const m = String(cfg.mode).toLowerCase();
     // Server host'siz 'network' rejim yuborsa — bu rejim baribir ishlamaydi
     // (ulanadigan manzil yo'q). Bunday holda .env dagi 'windows' rejim qoladi.
     if (m === 'network' && !cfg.host && MODE === 'windows') {
       console.log('[PRINT] Server network rejimini yubordi, lekin host bo\'sh — windows rejim qoladi');
-    } else {
+    } else if (m !== MODE) {
       MODE = m;
       console.log('[PRINT] Printer mode (server config): ' + MODE);
     }
   }
-  if (typeof cfg.printerName === 'string' && cfg.printerName.trim()) {
+  if (typeof cfg.printerName === 'string' && cfg.printerName.trim() && cfg.printerName.trim() !== PRINTER_NAME) {
     PRINTER_NAME = cfg.printerName.trim();
     console.log('[PRINT] Printer name (server config): ' + PRINTER_NAME);
   }
@@ -446,26 +595,60 @@ function applyConfig(cfg) {
   if (typeof cfg.host === 'string' && cfg.host) HOST = cfg.host;
 }
 
+/* ===== WebSocket: qayta ulanish + osilib qolgan ulanishni aniqlash ===== */
+let RECONNECT_DELAY = 3000;
+let reconnectTimer = null;
+
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  console.log('[PRINT] Qayta ulanish ' + Math.round(RECONNECT_DELAY / 1000) + ' soniyadan keyin...');
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, RECONNECT_DELAY);
+  RECONNECT_DELAY = Math.min(30000, Math.round(RECONNECT_DELAY * 1.5));
+}
+
 function connect() {
   const url = SERVER_URL.replace(/\/+$/, '') + '/ws?token=' + encodeURIComponent(TOKEN);
   console.log('Ulanmoqda:', url);
-  const ws = new WebSocket(url);
-  ws.on('open', () => console.log('[PRINT] WebSocket connected. Chek kutulmoqda...'));
+  const ws = new WebSocket(url, { handshakeTimeout: 15000, perMessageDeflate: false });
+  let lastTraffic = Date.now();
+  let hb = null;
+
+  ws.on('open', () => {
+    lastTraffic = Date.now();
+    RECONNECT_DELAY = 3000;
+    console.log('[PRINT] WebSocket connected. Chek kutulmoqda...');
+    // Internet uzilib TCP "osilib" qolsa 'close' hodisasi kelmasligi mumkin —
+    // agent ulangan deb o'ylab turadi va chek chiqmaydi. Shuning uchun har 25 s
+    // ping yuboramiz, 90 s javob bo'lmasa ulanishni uzamiz va qayta ulanamiz.
+    hb = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - lastTraffic > 90000) {
+        console.error('[PRINT] Serverdan 90 soniya javob yo\'q — ulanish osilgan, qayta ulanaman');
+        clearInterval(hb);
+        try { ws.terminate(); } catch (e) { /* ignore */ }
+        return;
+      }
+      try { ws.ping(); } catch (e) { /* ignore */ }
+    }, 25000);
+  });
+
+  ws.on('ping', () => { lastTraffic = Date.now(); });
+  ws.on('pong', () => { lastTraffic = Date.now(); });
+
   ws.on('message', m => {
+    lastTraffic = Date.now();
     try {
       const d = JSON.parse(m);
       if (d.type === 'print') {
-        console.log('[PRINT] Print command received (chek ' + (d.receipt && d.receipt.receipt_no) + ')');
+        if (!d.receipt) { console.error('[PRINT ERROR] print xabari cheksiz keldi'); return; }
+        console.log('[PRINT] Print command received (chek ' + d.receipt.receipt_no + ')');
         console.log('[PRINT] Receipt generated');
         console.log('[PRINT] Paper width: 80mm');
         console.log('[PRINT] Printer: ' + PRINTER_NAME);
-        printBuf(buildEscpos(d.receipt, d.reprint), d.receipt || {});
+        QUEUE.add({ kind: 'print', receipt: d.receipt, reprint: !!d.reprint });
       } else if (d.type === 'test-print') {
         console.log('[PRINT] Test print command received');
-        console.log('[PRINT] Receipt generated (test)');
-        console.log('[PRINT] Paper width: 80mm');
-        console.log('[PRINT] Printer: ' + PRINTER_NAME);
-        printBuf(buildTestReceipt(), { receipt_no: 'TEST' });
+        QUEUE.add({ kind: 'test' });
       } else if (d.type === 'config') {
         applyConfig(d.config);
       } else if (d.type === 'hello') {
@@ -473,20 +656,51 @@ function connect() {
       }
     } catch (e) { console.error('[PRINT ERROR] Xabar qayta ishlashda xato:', e.message); }
   });
+
   ws.on('close', () => {
-    console.log('[PRINT] WebSocket uzildi, 5 soniyadan keyin qayta urinaman...');
-    setTimeout(connect, 5000);
+    if (hb) clearInterval(hb);
+    console.log('[PRINT] WebSocket uzildi');
+    scheduleReconnect();
   });
+
   ws.on('error', e => console.error('[PRINT ERROR] WebSocket:', e.message));
+  return ws;
+}
+
+/* ===== Log fayli — do'kondagi kompyuterda muammoni tekshirish uchun ===== */
+const LOG_FILE = path.join(__dirname, 'agent.log');
+function startFileLog() {
+  try {
+    if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 2 * 1024 * 1024) {
+      try { fs.unlinkSync(LOG_FILE + '.1'); } catch (e) { /* ignore */ }
+      fs.renameSync(LOG_FILE, LOG_FILE + '.1');
+    }
+    const st = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+    const stamp = () => new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Tashkent' });
+    const fmt = a => a.map(x => {
+      if (typeof x === 'string') return x;
+      if (x && x.stack) return x.stack;
+      try { return JSON.stringify(x); } catch (e) { return String(x); }
+    }).join(' ');
+    const ol = console.log.bind(console);
+    const oe = console.error.bind(console);
+    console.log = (...a) => { ol(...a); try { st.write('[' + stamp() + '] ' + fmt(a) + '\n'); } catch (e) { /* ignore */ } };
+    console.error = (...a) => { oe(...a); try { st.write('[' + stamp() + '] XATO: ' + fmt(a) + '\n'); } catch (e) { /* ignore */ } };
+  } catch (e) { /* log yozilmasa ham agent ishlashda davom etadi */ }
 }
 
 /* Test chop: node agent.js --test */
 if (require.main === module) {
+  startFileLog();
+  process.on('uncaughtException', e => console.error('[PRINT FATAL] Kutilmagan xato (agent ishlashda davom etadi):', e && (e.stack || e.message)));
+  process.on('unhandledRejection', e => console.error('[PRINT FATAL] Ushlanmagan promise:', e && (e.stack || e.message)));
+
   if (process.argv.includes('--test')) {
     console.log('[PRINT] Test chek yuborilmoqda...');
     console.log('[PRINT] Paper width: 80mm');
     console.log('[PRINT] Printer: ' + PRINTER_NAME);
-    printBuf(buildTestReceipt(), { receipt_no: 'TEST' }).then(() => process.exit(0));
+    QUEUE.add({ kind: 'test', maxAttempts: 2 });
+    QUEUE.idle().then(() => process.exit(0));
   } else {
     console.log('[PRINT] Printer mode: ' + MODE);
     console.log('[PRINT] Printer: ' + PRINTER_NAME);
@@ -500,10 +714,13 @@ if (require.main === module) {
     });
     lock.listen(LOCK_PORT, '127.0.0.1', () => {
       console.log('[PRINT] Agent yagona nusxa sifatida ishga tushdi');
+      const n = QUEUE.loadLeftovers();
+      if (n) console.log('[PRINT] Chop etilmagan ' + n + ' ta chek topildi — qayta yuborilmoqda');
+      QUEUE.start();
       connect();
     });
   }
 } else {
-  // Modul sifatida chaqirilganda (dizaynni tekshirish uchun)
-  module.exports = { buildEscpos, buildTestReceipt };
+  // Modul sifatida chaqirilganda (dizaynni va navbatni tekshirish uchun)
+  module.exports = { buildEscpos, buildTestReceipt, printBuf, createQueue };
 }

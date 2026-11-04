@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.xlsx
+print-agent/queue/
+print-agent/agent.log
+print-agent/agent.log.1

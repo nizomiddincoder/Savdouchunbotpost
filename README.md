@@ -153,6 +153,41 @@ node agent.js
 - Printerda `PRINTER TEST / XPrinter OK` yozuvli chek chiqib, qog'oz kesilishi kerak
 
 ### 5) Real chek
-POS'da oddiy savdo qiling — chek avtomatik chiqadi. Agent konsolida
-`[PRINT] Print job sent successfully` ko'rinadi. Chiqmasa, konsoldagi
-`[PRINT ERROR]` xabarini o'qing (ko'pincha printer nomi noto'g'ri yozilgan bo'ladi).
+POS'da oddiy savdo qiling — chek avtomatik chiqadi. Agent konsolida va
+`print-agent/agent.log` da `[PRINT] Chek chop etildi: <№>` ko'rinadi.
+
+### 6) Chek chiqmay qolsa (2-3 chekdan keyin jim bo'lib qolsa)
+
+Sabablari odatda uchtasi: Windows print spooler'da tiqilib qolgan ish, internet
+uzilgandan keyin "osilib" qolgan WebSocket, yoki printerning o'zi (qog'oz, qopqoq,
+USB). Agent endi bularni o'zi tuzatadi:
+
+- Har chek **navbatga** turadi va ketma-ket yuboriladi — bir vaqtda bir nechta
+  PowerShell ishga tushib spooler'ni tiqib qo'ymaydi.
+- Yuborishdan oldin spooler'dagi eski/tiqilgan `POS Chek` ishlari tozalanadi.
+- Chek navbatdan chiqqani (printer haqiqatan olgani) tekshiriladi; chiqmasa ish
+  o'chiriladi va **qayta uriniladi** (1,5s, 6s, 13s ... jami ~2 daqiqa).
+- Internet uzilib TCP "osilib" qolsa, agent 90 soniyada sezadi va qayta ulanadi.
+- Shunda ham chiqmasa chek `print-agent/queue/` papkasida saqlanadi va agent qayta
+  ishga tushganda yuboriladi — chek yo'qolmaydi.
+- Har bir qadam `print-agent/agent.log` fayliga yoziladi (2 MB dan oshsa
+  `agent.log.1`). Muammo bo'lsa shu faylni yuboring.
+
+Admin panel > Sozlamalar'da **"🖨 Print-agent: ulangan / ulanmagan"** ko'rsatkichi bor.
+"Ulanmagan" bo'lsa do'kondagi kompyuterda `PRINTERNI ISHGA TUSHIRISH.bat` ishlamayapti.
+
+Printerning o'zini ham tekshiring: qog'oz tugamaganmi, qopqoq yopiqmi, USB kabel
+mahkammi, printer o'chib yonmaganmi. XPrinter ba'zan qog'oz tugagach javob bermay
+qoladi — qog'ozni qo'yib, printerni o'chirib-yoqish kerak bo'ladi.
+
+### 7) Windows'da do'kondagi kompyuterni sozlash (doimiy ishlashi uchun)
+1. **Uyqu rejimini o'chiring:** Settings > System > Power > Screen and sleep —
+   "Sleep" ni **Never** qiling. Kompyuter uyquga ketsa agent ham, printer ham ishlamaydi.
+2. **USB quvvat tejashni o'chiring:** Device Manager > Universal Serial Bus controllers >
+   har bir "USB Root Hub" > Properties > Power Management >
+   "Allow the computer to turn off this device to save power" belgisini olib tashlang.
+   Aks holda Windows bir necha daqiqadan keyin printerning USB portini "uxlatadi".
+3. **Windows Update'dan keyin qayta ishga tushishni boshqaring:** Settings > Windows Update >
+   Advanced options > Active hours — do'kon ish vaqtini belgilang.
+4. `PRINTERNI ISHGA TUSHIRISH.bat` ni **Startup** papkasiga qo'ying (Win+R → `shell:startup`),
+   shunda kompyuter yonishi bilan agent o'zi ishga tushadi.

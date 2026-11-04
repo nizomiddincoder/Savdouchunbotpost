@@ -41,11 +41,19 @@ function initWs(server) {
     sendConfig(ws);
     console.log('Chek agenti ulandi (jami:', clients.size, ')');
   });
+  // Bitta buzuq ulanish butun serverni yiqitmasligi uchun har bir amal alohida
+  // himoyalangan — aks holda agent/protsess o'chib, chek chiqmay qolardi.
+  wss.on('error', e => console.error('WS server xatosi:', e.message));
   setInterval(() => {
     for (const ws of clients) {
-      if (!ws.isAlive) { clients.delete(ws); ws.terminate(); continue; }
-      ws.isAlive = false;
-      ws.ping();
+      try {
+        if (!ws.isAlive) { clients.delete(ws); ws.terminate(); continue; }
+        ws.isAlive = false;
+        ws.ping();
+      } catch (e) {
+        clients.delete(ws);
+        try { ws.terminate(); } catch (_) { /* allaqachon yopilgan */ }
+      }
     }
   }, 30000);
 }
@@ -54,7 +62,11 @@ function agentOnline() { return clients.size > 0; }
 
 function broadcast(obj) {
   const s = JSON.stringify(obj);
-  for (const ws of clients) if (ws.readyState === 1) ws.send(s);
+  for (const ws of clients) {
+    if (ws.readyState !== 1) continue;
+    // Bitta buzuq ulanish butun broadcast'ni yiqitmasligi kerak
+    try { ws.send(s); } catch (e) { console.error('WS yuborishda xato:', e.message); }
+  }
 }
 
 module.exports = { initWs, broadcast, agentOnline, printerConfig };
