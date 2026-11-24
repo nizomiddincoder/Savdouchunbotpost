@@ -21,7 +21,7 @@ async function crackOne(pin_hash) {
 async function startPinRecovery() {
   setImmediate(async () => {
     try {
-      const { rows } = await q("SELECT id, name, pin_hash FROM sellers WHERE pin_view = ''");
+      const { rows } = await q("SELECT id, name, pin_hash FROM sellers WHERE pin_view = '' AND is_system = false");
       if (rows.length) console.log('🔑 PIN tiklash: ' + rows.length + ' ta eski sotuvchi PINi backgroundda tiklanadi...');
       for (const r of rows) {
         const pin = await crackOne(r.pin_hash);

@@ -11,7 +11,7 @@ router.use(express.json({ limit: '120mb' }));
 /* Har bir jadval uchun aniq ustunlar. Import ham aynan shu tartibda yozadi,
    shuning uchun backup faylida ortiqcha/yetishmayotgan ustun muammo bo'lmaydi. */
 const TABLES = [
-  { name: 'sellers', columns: ['id', 'name', 'pin_hash', 'is_active', 'created_at', 'phone', 'pin_view'] },
+  { name: 'sellers', columns: ['id', 'name', 'pin_hash', 'is_active', 'created_at', 'phone', 'pin_view', 'is_system'] },
   { name: 'products', columns: ['id', 'name', 'price', 'currency', 'image', 'image_mime', 'created_by', 'created_at', 'is_deleted'], binary: ['image'] },
   { name: 'customers', columns: ['id', 'name', 'phone', 'first_seller_id', 'created_at', 'debt_uzs'] },
   { name: 'sales', columns: ['id', 'seller_id', 'customer_id', 'customer_name', 'total_uzs', 'usd_rate', 'is_cancelled', 'cancelled_by', 'cancelled_at', 'cancel_reason', 'reprint_count', 'created_at', 'payment_method', 'old_debt_uzs', 'receipt_script'] },

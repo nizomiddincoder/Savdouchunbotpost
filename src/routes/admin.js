@@ -2,7 +2,7 @@ const router = require('express').Router();
 const ExcelJS = require('exceljs');
 const { pool, q, getSettings } = require('../db');
 const { middleware, hashPin, checkPin } = require('../auth');
-const { createCustomer } = require('../customers');
+const { createCustomer, searchSql } = require('../customers');
 
 const anyAuth = middleware();
 const adminOnly = middleware('admin');
@@ -30,7 +30,7 @@ router.get('/sellers', adminOnly, async (req, res, next) => {
         (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_s,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}) AS month_c,
         (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}) AS month_s
-      FROM sellers s ORDER BY s.name`);
+      FROM sellers s WHERE s.is_system = false ORDER BY s.name`);
     res.json({
       sellers: rows.map(r => ({
         id: r.id, name: r.name, phone: r.phone || '', pin_view: r.pin_view || '', is_active: r.is_active,
@@ -77,6 +77,13 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
 /* ================= Xaridorlar ================= */
 router.get('/customers', adminOnly, async (req, res, next) => {
   try {
+    const params = [];
+    const s = searchSql(req.query.q, params, 'c');
+    const debtOnly = req.query.debt === '1' ? ' AND c.debt_uzs > 0' : '';
+    const order = req.query.sort === 'debt' ? 'c.debt_uzs DESC'
+      : req.query.sort === 'spent' ? 'total_spent DESC'
+      : req.query.sort === 'name' ? 'c.name'
+      : 'max(v.created_at) DESC NULLS LAST';
     const { rows } = await q(`
       SELECT c.id, c.name, c.phone, c.debt_uzs, s.name AS first_seller,
         to_char((c.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD') AS first_seen,
@@ -86,10 +93,13 @@ router.get('/customers', adminOnly, async (req, res, next) => {
       FROM customers c
       LEFT JOIN sellers s ON s.id = c.first_seller_id
       LEFT JOIN sales v ON v.customer_id = c.id
+      WHERE ${s.where}${debtOnly}
       GROUP BY c.id, c.name, c.phone, c.debt_uzs, s.name, c.created_at
-      ORDER BY max(v.created_at) DESC NULLS LAST
-      LIMIT 500`);
+      ORDER BY ${s.rank}, ${order}
+      LIMIT 500`, params);
+    const tot = (await q('SELECT count(*) AS c, count(*) FILTER (WHERE debt_uzs > 0) AS d, coalesce(sum(debt_uzs), 0) AS s FROM customers')).rows[0];
     res.json({
+      total: Number(tot.c), debtors: Number(tot.d), debt_sum: Number(tot.s),
       customers: rows.map(r => ({
         id: r.id, name: r.name, phone: r.phone, first_seller: r.first_seller, first_seen: r.first_seen,
         visits: Number(r.visits), total_spent: Number(r.total_spent), last_visit: r.last_visit,
@@ -110,18 +120,9 @@ router.get('/customers/names', anyAuth, async (req, res, next) => {
    Qidiruv serverda bajariladi (ism yoki telefon), shuning uchun mijozlar ko'p bo'lsa ham hammasi topiladi. */
 router.get('/customers/list', anyAuth, async (req, res, next) => {
   try {
-    const raw = String(req.query.q || '').trim().slice(0, 60);
-    const digits = raw.replace(/\D/g, '');
+    // Ism (lotin/kirill, bir nechta so'z) yoki telefon raqami bo'yicha; boshidan mos kelganlar yuqorida
     const params = [];
-    let where = 'TRUE';
-    if (raw) {
-      params.push('%' + raw.toLowerCase() + '%');
-      where = `lower(c.name) LIKE $1`;
-      if (digits) {
-        params.push('%' + digits + '%');
-        where += ` OR regexp_replace(coalesce(c.phone, ''), '\\D', '', 'g') LIKE $${params.length}`;
-      }
-    }
+    const s = searchSql(req.query.q, params, 'c');
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 300, 1), 1000);
     params.push(limit);
     const { rows } = await q(`
@@ -130,9 +131,9 @@ router.get('/customers/list', anyAuth, async (req, res, next) => {
         to_char(max(v.created_at) AT TIME ZONE '${TZ}', 'YYYY-MM-DD HH24:MI') AS last_visit
       FROM customers c
       LEFT JOIN sales v ON v.customer_id = c.id
-      WHERE ${where}
+      WHERE ${s.where}
       GROUP BY c.id, c.name, c.phone, c.debt_uzs
-      ORDER BY max(v.created_at) DESC NULLS LAST, c.name
+      ORDER BY ${s.rank}, max(v.created_at) DESC NULLS LAST, c.name
       LIMIT $${params.length}`, params);
     const total = (await q('SELECT count(*) AS c FROM customers')).rows[0];
     res.json({
@@ -294,8 +295,37 @@ router.get('/stats/dashboard', adminOnly, async (req, res, next) => {
         count(DISTINCT v.customer_id) FILTER (WHERE v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}
           AND (c.created_at AT TIME ZONE '${TZ}')::date < ${TODAY}) AS returning_today
       FROM customers c LEFT JOIN sales v ON v.customer_id = c.id`)).rows[0];
+    // Grafik uchun: oxirgi 7 kun va oxirgi 6 oy (bo'sh kunlar 0 bilan)
+    const days = (await q(`
+      SELECT to_char(d, 'YYYY-MM-DD') AS k, coalesce(sum(v.total_uzs) FILTER (WHERE v.is_cancelled = false), 0) AS s,
+        count(v.id) FILTER (WHERE v.is_cancelled = false) AS c
+      FROM generate_series(${TODAY} - 6, ${TODAY}, interval '1 day') d
+      LEFT JOIN sales v ON (v.created_at AT TIME ZONE '${TZ}')::date = d::date
+      GROUP BY d ORDER BY d`)).rows;
+    const months = (await q(`
+      SELECT to_char(m, 'YYYY-MM') AS k, coalesce(sum(v.total_uzs) FILTER (WHERE v.is_cancelled = false), 0) AS s,
+        count(v.id) FILTER (WHERE v.is_cancelled = false) AS c
+      FROM generate_series(${MONTH_START} - interval '5 months', ${MONTH_START}, interval '1 month') m
+      LEFT JOIN sales v ON date_trunc('month', v.created_at AT TIME ZONE '${TZ}') = m
+      GROUP BY m ORDER BY m`)).rows;
+    const pays = (await q(`SELECT payment_method AS k, count(*) AS c, coalesce(sum(total_uzs), 0) AS s
+      FROM sales WHERE is_cancelled = false AND (created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}
+      GROUP BY payment_method`)).rows;
+    const debt = (await q(`SELECT count(*) FILTER (WHERE debt_uzs > 0) AS c, coalesce(sum(debt_uzs), 0) AS s, count(*) AS total FROM customers`)).rows[0];
+    const recent = (await q(`
+      SELECT v.id, v.customer_name, v.total_uzs, v.payment_method, v.is_cancelled, sel.name AS seller_name,
+        to_char((v.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD') AS d, to_char((v.created_at AT TIME ZONE '${TZ}'), 'HH24:MI') AS t
+      FROM sales v JOIN sellers sel ON sel.id = v.seller_id ORDER BY v.id DESC LIMIT 6`)).rows;
     const st = await getSettings();
     res.json({
+      series: {
+        days: days.map(r => ({ k: r.k, s: Number(r.s), c: Number(r.c) })),
+        months: months.map(r => ({ k: r.k, s: Number(r.s), c: Number(r.c) }))
+      },
+      pays: pays.map(r => ({ k: r.k, c: Number(r.c), s: Number(r.s) })),
+      debt: { c: Number(debt.c), s: Number(debt.s), customers: Number(debt.total) },
+      recent: recent.map(r => ({ id: r.id, customer_name: r.customer_name, total_uzs: Number(r.total_uzs),
+        payment_method: r.payment_method, is_cancelled: r.is_cancelled, seller_name: r.seller_name, d: r.d, t: r.t })),
       day: { c: Number(day.c), s: Number(day.s), cc: Number(day.cc), cs: Number(day.cs) },
       month: { c: Number(month.c), s: Number(month.s) },
       sellers: sellers.map(x => ({ name: x.name, c: Number(x.c), s: Number(x.s) })),

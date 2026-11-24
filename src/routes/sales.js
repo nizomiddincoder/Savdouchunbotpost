@@ -46,11 +46,42 @@ async function buildReceipt(saleId) {
 
 const PAY_METHODS = ['naqd', 'karta', 'nasiya'];
 
+// "Admin" tizim sotuvchisi — admin POS orqali sotganda savdo shu nomga yoziladi.
+// is_active = false: bu yozuv bilan PIN orqali kirib bo'lmaydi.
+let adminSellerCache = null;
+async function adminSellerId() {
+  if (adminSellerCache) {
+    const ok = (await q('SELECT 1 FROM sellers WHERE id = $1 AND is_system = true', [adminSellerCache])).rows[0];
+    if (ok) return adminSellerCache;
+  }
+  let r = (await q('SELECT id FROM sellers WHERE is_system = true ORDER BY id LIMIT 1')).rows[0];
+  if (!r) {
+    const { hashPin } = require('../auth');
+    r = (await q(`INSERT INTO sellers (name, phone, pin_hash, pin_view, is_active, is_system)
+      VALUES ('Admin', '', $1, '-', false, true) RETURNING id`, [hashPin(require('crypto').randomBytes(24).toString('hex'))])).rows[0];
+  }
+  adminSellerCache = r.id;
+  return r.id;
+}
+
 // Yangi savdo
 router.post('/', anyAuth, async (req, res, next) => {
   try {
-    if (req.user.role !== 'seller') throw new Error('Savdoni faqat sotuvchi amalga oshiradi');
     const { items, customer_name, customer_phone } = req.body;
+    // Sotuvchi o'z nomidan sotadi. Admin (POS panel) tanlangan sotuvchi nomidan yoki "Admin" nomidan sotadi.
+    let sellerId = req.user.id;
+    if (req.user.role === 'admin') {
+      const pick = parseInt(req.body.seller_id, 10);
+      if (pick > 0) {
+        const s = (await q('SELECT id FROM sellers WHERE id = $1 AND is_system = false', [pick])).rows[0];
+        if (!s) throw new Error('Tanlangan sotuvchi topilmadi');
+        sellerId = s.id;
+      } else {
+        sellerId = await adminSellerId();
+      }
+    } else if (req.user.role !== 'seller') {
+      throw new Error('Ruxsat yo\'q');
+    }
     // Sotuvchi "Eski mijoz" ro'yxatidan tanlagan bo'lsa — customer_id yuboriladi
     const customerId = req.body.customer_id ? parseInt(req.body.customer_id, 10) : null;
     const cname = cleanName(customer_name);
@@ -73,7 +104,7 @@ router.post('/', anyAuth, async (req, res, next) => {
         c = found;
       } else {
         // Orqaga moslik: ism bo'yicha mavjudini topadi yoki yaratadi (telefon dublikati tekshiriladi)
-        c = await getOrCreateForSale(client, { name: cname, phone, sellerId: req.user.id });
+        c = await getOrCreateForSale(client, { name: cname, phone, sellerId: req.user.role === 'seller' ? sellerId : null });
       }
       const custName = c.name;
       // Xaridorning eski nasiyasi (har safar ko'rsatiladi, faqat nasiya savdosida qarzga qo'shiladi)
@@ -86,10 +117,11 @@ router.post('/', anyAuth, async (req, res, next) => {
         if (!p) throw new Error('Mahsulot topilmadi (ID ' + it.product_id + ')');
         const baseUzs = p.currency === 'USD' ? Math.round(Number(p.price) * rate) : Math.round(Number(p.price));
         let priceUzs = baseUzs;
-        // Nasiya savdosida sotuvchi har bir mahsulot narxini o'zgartira oladi
-        if (pay === 'nasiya' && it.price_uzs !== undefined && it.price_uzs !== null && it.price_uzs !== '') {
+        // Sotish paytida har bir mahsulot narxini o'zgartirish mumkin (har qanday to'lov usulida).
+        // Asl narx base_price_uzs ustunida saqlanadi — hisobotda farqni ko'rish mumkin.
+        if (it.price_uzs !== undefined && it.price_uzs !== null && it.price_uzs !== '') {
           const cp = Math.round(Number(it.price_uzs));
-          if (!isFinite(cp) || cp < 0) throw new Error(p.name + " — nasiya narxi noto'g'ri kiritilgan");
+          if (!isFinite(cp) || cp < 0) throw new Error(p.name + " — narx noto'g'ri kiritilgan");
           priceUzs = cp;
         }
         const lineTotal = priceUzs * qty;
@@ -99,7 +131,7 @@ router.post('/', anyAuth, async (req, res, next) => {
       const sale = (await client.query(
         `INSERT INTO sales (seller_id, customer_id, customer_name, total_uzs, usd_rate, payment_method, old_debt_uzs, receipt_script)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-        [req.user.id, c.id, custName, total, rate, pay, oldDebt, rscript])).rows[0];
+        [sellerId, c.id, custName, total, rate, pay, oldDebt, rscript])).rows[0];
       for (const l of lines) {
         await client.query(
           `INSERT INTO sale_items (sale_id, product_id, product_name, qty, price_orig, currency, price_uzs, line_total_uzs, base_price_uzs)

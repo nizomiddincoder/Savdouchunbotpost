@@ -108,4 +108,39 @@ async function getOrCreateForSale(client, { name, phone, sellerId }) {
   return rows[0];
 }
 
-module.exports = { cleanName, cleanPhone, phoneKey, findByName, findByPhone, createCustomer, getOrCreateForSale };
+/* Tezkor qidiruv sharti: har bir so'z ismda bo'lishi kerak (lotin/kirill variantlari bilan),
+   yoki raqamlar telefonda. Qaytaradi: { where, rank } — params massiviga qiymatlar qo'shiladi.
+   rank: ism so'rov bilan boshlansa 0 (yuqorida), aks holda 1. */
+const { variants } = require('./translit');
+// lower() kirill harflarni faqat baza locale'i UTF-8 bo'lsa kichraytiradi — translate() har qanday locale'da ishlaydi
+const CYR_UP = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯЎҚҒҲ';
+const CYR_LO = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюяўқғҳ';
+function searchSql(raw, params, alias) {
+  const a = alias || 'c';
+  const LN = `lower(translate(${a}.name, '${CYR_UP}', '${CYR_LO}'))`;
+  const text = String(raw || '').trim().slice(0, 60);
+  if (!text) return { where: 'TRUE', rank: '1' };
+  const digits = text.replace(/\D/g, '');
+  const words = text.replace(/[+\d()-]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 5);
+  const ors = [];
+  if (words.length) {
+    const ands = words.map(w => {
+      const vs = variants(w).map(v => { params.push('%' + v + '%'); return `${LN} LIKE $${params.length}`; });
+      return '(' + vs.join(' OR ') + ')';
+    });
+    ors.push('(' + ands.join(' AND ') + ')');
+  }
+  if (digits.length >= 2) {
+    params.push('%' + digits + '%');
+    ors.push(`regexp_replace(coalesce(${a}.phone, ''), '\\D', '', 'g') LIKE $${params.length}`);
+  }
+  if (!ors.length) return { where: 'TRUE', rank: '1' };
+  let rank = '1';
+  if (words.length) {
+    const pre = variants(words[0]).map(v => { params.push(v + '%'); return `${LN} LIKE $${params.length}`; });
+    rank = `CASE WHEN ${pre.join(' OR ')} THEN 0 ELSE 1 END`;
+  }
+  return { where: '(' + ors.join(' OR ') + ')', rank };
+}
+
+module.exports = { cleanName, cleanPhone, phoneKey, findByName, findByPhone, createCustomer, getOrCreateForSale, searchSql };

@@ -102,7 +102,8 @@ async function initDb() {
   await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`);
   // Sotuvchi PINi admin panelda ko'rinsin — yangi PINlar oddiy holatda ham saqlanadi
   await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS pin_view TEXT NOT NULL DEFAULT ''`);
-  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_1 TEXT NOT NULL DEFAULT ''`);
+  // Admin panel POS orqali qilingan savdolar uchun tizim sotuvchisi ("Admin") — PIN bilan kira olmaydi
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT false`);  await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_1 TEXT NOT NULL DEFAULT ''`);
   await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS phone_2 TEXT NOT NULL DEFAULT ''`);
   // Chek yuqorisida chiqadigan sarlavha (dastur nomi)
   await q(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS receipt_title TEXT NOT NULL DEFAULT 'SAVDO'`);
