@@ -69,7 +69,9 @@ const IC = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
   sort: '<path d="M3 6h18M6 12h12M10 18h4"/>',
-  sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5"/>'
+  sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5"/>',
+  panelLeft: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>'
 };
 function icon(n, cls) {
   return '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IC[n] || '') + '</svg>';
@@ -1014,31 +1016,51 @@ const ADMIN_TABS = [
 ];
 let SHOP_NAME = '';
 
+let NAV_COLLAPSED = localStorage.getItem('nav') === 'off';
+
 async function renderAdmin(tab) {
   document.onkeydown = null;
   ADMIN_TAB = tab || ADMIN_TAB;
   if (!SHOP_NAME) { try { SHOP_NAME = (await api('/settings')).shop_name; } catch (e) { SHOP_NAME = 'Savdo'; } }
   app.innerHTML =
-    '<div class="adm">' +
-    '<header class="adm-head">' +
-    '<div class="brand">' + '<span class="brand-mark">' + icon('cart') + '</span><span>' + esc(SHOP_NAME || 'Savdo') + '</span></div>' +
-    '<nav class="nav-pill" id="tabs" aria-label="Bo\'limlar">' +
-    ADMIN_TABS.map(t => '<button class="' + (t[0] === ADMIN_TAB ? 'on' : '') + '" data-tab="' + t[0] + '"' + (t[0] === ADMIN_TAB ? ' aria-current="page"' : '') + '>' + icon(t[2]) + '<span>' + t[1] + '</span></button>').join('') +
+    '<div class="adm' + (NAV_COLLAPSED ? ' collapsed' : '') + '" id="admShell">' +
+    '<aside class="side">' +
+    '<div class="side-head">' +
+    '<div class="brand"><span class="brand-mark">' + icon('cart') + '</span><span class="brand-txt">' + esc(SHOP_NAME || 'Savdo') + '</span></div>' +
+    '<button class="icon-btn flat side-toggle" id="navToggle" title="Menyuni yig\'ish / ochish" aria-label="Menyuni yig\'ish yoki ochish">' + icon('panelLeft') + '</button>' +
+    '</div>' +
+    '<nav class="side-nav" id="tabs" aria-label="Bo\'limlar">' +
+    ADMIN_TABS.map(t => '<button class="' + (t[0] === ADMIN_TAB ? 'on' : '') + '" data-tab="' + t[0] + '" title="' + t[1] + '"' + (t[0] === ADMIN_TAB ? ' aria-current="page"' : '') + '>' + icon(t[2]) + '<span class="nav-txt">' + t[1] + '</span></button>').join('') +
     '</nav>' +
-    '<div class="head-acts">' + scriptBtnHtml() + themeBtnHtml() +
+    '<div class="side-foot">' +
+    '<div class="side-user">' + avatar(ME.name || 'Admin', 38) + '<span class="me-name">' + esc(ME.name || 'Admin') + '</span></div>' +
+    '<div class="side-acts">' + scriptBtnHtml() + themeBtnHtml() +
     '<button class="icon-btn" id="btnLogout" title="Chiqish" aria-label="Chiqish">' + icon('logout') + '</button>' +
-    '<div class="me-chip">' + avatar(ME.name || 'Admin', 40) + '</div>' +
-    '</div></header>' +
-    '<main id="adminContent"></main>' +
+    '</div></div>' +
+    '</aside>' +
+    '<main class="adm-main" id="adminContent"></main>' +
     '</div>';
+  $('navToggle').onclick = () => {
+    NAV_COLLAPSED = !NAV_COLLAPSED;
+    localStorage.setItem('nav', NAV_COLLAPSED ? 'off' : 'on');
+    $('admShell').classList.toggle('collapsed', NAV_COLLAPSED);
+  };
   $('tabs').onclick = e => {
     const b = e.target.closest('[data-tab]');
-    if (b) { ADMIN_TAB = b.dataset.tab; renderAdmin(); }
+    if (!b) return;
+    ADMIN_TAB = b.dataset.tab;
+    $('tabs').querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x === b));
+    renderTab(ADMIN_TAB);
   };
   $('btnLogout').onclick = confirmLogout;
   renderTab(ADMIN_TAB);
 }
-function goTab(t) { ADMIN_TAB = t; renderAdmin(); }
+function goTab(t) {
+  ADMIN_TAB = t;
+  const nav = $('tabs');
+  if (nav) nav.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x.dataset.tab === t));
+  renderTab(t);
+}
 
 function pageHead(title, sub, acts) {
   return '<div class="page-head"><div><h1 class="page-title">' + title + '</h1>' + (sub ? '<div class="page-sub">' + sub + '</div>' : '') + '</div>' +
