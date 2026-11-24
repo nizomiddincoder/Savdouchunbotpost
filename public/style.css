@@ -509,11 +509,14 @@ body.dark .ch-bar { background-color: #2f6b4b; }
   background: var(--card); border-radius: var(--r); box-shadow: var(--sh); display: flex; flex-direction: column;
   position: sticky; top: 14px; height: calc(100vh - 28px);
 }
-.order-head { padding: 20px 20px 12px; }
+.order-head { padding: 14px 16px 10px; }
 .order-head .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-.order-no { font-size: 20px; font-weight: 800; margin-top: 2px; }
-.order-body { padding: 0 20px; overflow-y: auto; flex: 1; min-height: 120px; }
-.order-foot { padding: 14px 20px 20px; border-top: 1px solid var(--line); }
+.order-no { font-size: 18px; font-weight: 800; margin-top: 1px; }
+.order-body { padding: 0 16px; overflow-y: auto; flex: 1; min-height: 120px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.order-body::-webkit-scrollbar { width: 8px; }
+.order-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 2px solid var(--card); }
+.order-body::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.order-foot { padding: 12px 16px 16px; border-top: 1px solid var(--line); }
 .o-sel { min-height: 38px; padding: 6px 30px 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-weight: 600; font-size: 13px; max-width: 170px; }
 .cust-field { position: relative; margin-top: 12px; }
 .cust-drop {
@@ -528,14 +531,33 @@ body.dark .ch-bar { background-color: #2f6b4b; }
 .cust-sel .cs-main { flex: 1; min-width: 0; }
 .cust-sel b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .new-cust { margin-top: 10px; padding: 12px; border-radius: var(--r-m); background: var(--soft2); display: flex; flex-direction: column; gap: 8px; }
-.o-item { display: flex; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+/* Kompakt savat qatori: rasm + (nom/o'chirish) va (narx · son · summa) bir qatorda */
+.o-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .o-item:last-child { border-bottom: none; }
-.o-thumb { width: 52px; height: 52px; border-radius: 14px; background: var(--warn-soft); overflow: hidden; flex: none; display: flex; align-items: center; justify-content: center; color: var(--warn); }
+.o-thumb { width: 42px; height: 42px; border-radius: 11px; background: var(--warn-soft); overflow: hidden; flex: none; display: flex; align-items: center; justify-content: center; color: var(--warn); }
 .o-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.o-main { flex: 1; min-width: 0; }
-.o-name { font-weight: 700; font-size: 14.5px; line-height: 1.3; }
-.o-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-.o-sum { font-weight: 700; font-size: 14px; white-space: nowrap; }
+.o-thumb .ic { width: 18px; height: 18px; }
+.o-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.o-top { display: flex; align-items: center; gap: 8px; }
+.o-name { flex: 1; min-width: 0; font-weight: 700; font-size: 13.5px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.o-del { width: 26px; height: 26px; border-radius: 8px; flex: none; color: var(--danger); display: flex; align-items: center; justify-content: center; }
+.o-del:hover { background: var(--danger-soft); }
+.o-del .ic { width: 15px; height: 15px; }
+.o-ctl { display: flex; align-items: center; gap: 8px; }
+.o-price { display: flex; align-items: center; gap: 5px; flex: none; }
+.o-price .price-inp { width: 72px; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; font-size: 13px; font-weight: 700; background: var(--card); -moz-appearance: textfield; appearance: textfield; }
+.o-price.changed .price-inp { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
+.o-price .unit { font-size: 11px; color: var(--muted); }
+.o-price .reset { font-size: 11px; color: var(--warn); text-decoration: line-through; padding: 2px 0; }
+.o-price .reset:hover { color: var(--danger); }
+.qstep { display: flex; align-items: center; gap: 1px; background: var(--soft); border-radius: 999px; padding: 2px; flex: none; }
+.qstep .qbtn { width: 26px; height: 26px; border-radius: 50%; background: var(--card); display: flex; align-items: center; justify-content: center; }
+.qstep .qbtn:hover { background: var(--line); }
+.qstep .qbtn .ic { width: 13px; height: 13px; }
+.qstep .qv-inp { width: 30px; height: 26px; border: none; background: transparent; text-align: center; font-size: 13px; font-weight: 700; -moz-appearance: textfield; appearance: textfield; }
+.qstep .qv-inp:focus { outline: none; }
+.o-sum { margin-left: auto; font-weight: 800; font-size: 13.5px; white-space: nowrap; }
+.o-sum::after { content: ' so\'m'; font-weight: 500; font-size: 11px; color: var(--muted); }
 .o-empty { text-align: center; color: var(--muted); padding: 40px 10px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .o-empty .ttl-ic { width: 56px; height: 56px; }
 .o-empty .ttl-ic .ic { width: 26px; height: 26px; }

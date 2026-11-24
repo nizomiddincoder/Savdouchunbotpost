@@ -1441,22 +1441,26 @@ function posRenderCust() {
 function posRenderOrder() {
   const box = $('oItems');
   if (!box) return;
+  const st = box.scrollTop;   // son o'zgarganda ro'yxat tepaga sakramasin
   const items = posItems();
   box.innerHTML = items.length ? items.map(it => {
     const pr = posPrice(it);
     const changed = pr !== it.p.price_uzs;
     return '<div class="o-item" data-id="' + it.p.id + '">' +
       productThumb(it.p, 'o-thumb') +
-      '<div class="o-main"><div style="display:flex;justify-content:space-between;gap:8px"><div class="o-name">' + esc(it.p.name) + '</div>' +
-      '<button class="icon-btn sm flat danger" data-rm="' + it.p.id + '" title="Olib tashlash" aria-label="Olib tashlash" style="width:30px;height:30px">' + icon('trash', 's') + '</button></div>' +
-      '<div class="price-line muted sm"><input class="price-inp' + (changed ? ' changed' : '') + '" data-pid="' + it.p.id + '" type="number" min="0" step="1" inputmode="numeric" value="' + pr + '" aria-label="Narx" title="Narxni o\'zgartirish">' +
-      (changed ? '<span class="old-price">' + fmt(it.p.price_uzs) + '</span><button class="link-btn" style="margin:0;min-height:0;font-size:12px" data-reset="' + it.p.id + '">asl narx</button>' : '<span>so\'m</span>') + '</div>' +
-      '<div class="o-row"><div class="cr-qty"><button class="qbtn" data-act="minus" aria-label="Kamaytirish">' + icon('minus') + '</button>' +
+      '<div class="o-main">' +
+      '<div class="o-top"><div class="o-name">' + esc(it.p.name) + '</div>' +
+      '<button class="o-del" data-rm="' + it.p.id + '" title="Olib tashlash" aria-label="Olib tashlash">' + icon('trash', 's') + '</button></div>' +
+      '<div class="o-ctl">' +
+      '<div class="o-price' + (changed ? ' changed' : '') + '"><input class="price-inp" data-pid="' + it.p.id + '" type="number" min="0" step="1" inputmode="numeric" value="' + pr + '" aria-label="Narx" title="Narxni o\'zgartirish">' +
+      (changed ? '<button class="unit reset" data-reset="' + it.p.id + '" title="Asl narx: ' + fmt(it.p.price_uzs) + '">' + fmt(it.p.price_uzs) + '</button>' : '<span class="unit">so\'m</span>') + '</div>' +
+      '<div class="qstep"><button class="qbtn" data-act="minus" aria-label="Kamaytirish">' + icon('minus') + '</button>' +
       '<input class="qv-inp" data-pid="' + it.p.id + '" type="number" min="1" step="1" inputmode="numeric" value="' + it.qty + '" aria-label="Soni">' +
       '<button class="qbtn" data-act="plus" aria-label="Ko\'paytirish">' + icon('plus') + '</button></div>' +
-      '<span class="o-sum num" data-sum="' + it.p.id + '">' + money(pr * it.qty) + '</span></div>' +
-      '</div></div>';
+      '<span class="o-sum num" data-sum="' + it.p.id + '">' + fmt(pr * it.qty) + '</span>' +
+      '</div></div></div>';
   }).join('') : '<div class="o-empty"><span class="ttl-ic">' + icon('cart') + '</span><b>Savat bo\'sh</b><span class="sm">Chapdagi mahsulotni bosing yoki nomini yozib Enter bosing</span></div>';
+  box.scrollTop = st;
   posRenderFoot();
 }
 
@@ -1504,7 +1508,7 @@ function posBindOrder() {
   const updSum = pid => {
     const it = posItems().find(x => x.p.id === pid);
     const el = box.querySelector('[data-sum="' + pid + '"]');
-    if (it && el) el.textContent = money(posPrice(it) * it.qty);
+    if (it && el) el.textContent = fmt(posPrice(it) * it.qty);
   };
   box.addEventListener('input', e => {
     const p = e.target.closest('.price-inp');
