@@ -542,6 +542,13 @@ body.dark .ch-bar { background-color: #2f6b4b; }
 }
 .cust-drop .cust-pick:first-child { border-radius: var(--r-m) var(--r-m) 0 0; }
 .cust-drop .drop-foot { padding: 10px 12px; font-size: 12px; color: var(--muted); background: var(--soft2); display: flex; justify-content: space-between; gap: 8px; }
+
+/* Mijoz ro'yxatlari uchun ingichka, dizaynга mos scroll bar */
+.cust-drop, .cust-list { scrollbar-width: thin; scrollbar-color: var(--line) transparent; overscroll-behavior: contain; }
+.cust-drop::-webkit-scrollbar, .cust-list::-webkit-scrollbar { width: 10px; }
+.cust-drop::-webkit-scrollbar-track, .cust-list::-webkit-scrollbar-track { background: transparent; }
+.cust-drop::-webkit-scrollbar-thumb, .cust-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 3px solid var(--card); background-clip: padding-box; }
+.cust-drop::-webkit-scrollbar-thumb:hover, .cust-list::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
 .cust-sel {
   display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; border-radius: var(--r-m); background: var(--acc-soft); margin-top: 12px;
 }
