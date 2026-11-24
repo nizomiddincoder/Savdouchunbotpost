@@ -36,6 +36,14 @@ body {
 button { font: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 button:disabled { cursor: not-allowed; }
 input, select, textarea { font: inherit; color: var(--ink); }
+
+/* ===== Butun dastur bo'ylab ingichka, yumaloq scroll bar ===== */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; min-height: 40px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 :focus-visible { outline: none; box-shadow: var(--focus); }
 .muted { color: var(--muted); }
 .sm { font-size: 12.5px; }
@@ -115,6 +123,10 @@ input, select, textarea { font: inherit; color: var(--ink); }
 }
 .li-row:last-child { border-bottom: none; }
 .row-off { opacity: .5; }
+.li-row.sale-link { cursor: pointer; border-radius: 10px; margin: 0 -8px; padding-left: 8px; padding-right: 8px; transition: background .12s; }
+.li-row.sale-link:hover { background: var(--card); }
+.sale-right { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.sale-right .ic { color: var(--muted); }
 .badge {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
   font-size: 12px; font-weight: 600; white-space: nowrap;

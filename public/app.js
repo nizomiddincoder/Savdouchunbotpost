@@ -8,6 +8,19 @@ const $ = id => document.getElementById(id);
 let TOKEN = localStorage.getItem('token') || '';
 let ME = null;
 let CACHE = { products: [], usd_rate: 0, shop_name: '', shop_phone: '' };
+let USD_RATE = 0;   // joriy USD kursi — ma'lumot yuklanganda yangilanadi
+function setRate(r) { r = Number(r); if (r > 0) USD_RATE = r; }
+function usdOf(uzs) { return USD_RATE > 0 ? Number(uzs) / USD_RATE : 0; }
+// Qarz/summani UZS va (kurs ma'lum bo'lsa) USD ko'rinishida matn qilib qaytaradi
+function dualMoney(uzs) {
+  const u = usdOf(uzs);
+  return fmt(uzs) + ' so\'m' + (u ? ' · $' + fmtUsd(u) : '');
+}
+// Inline USD qo'shimchasi (" · $12,30") — kurs bo'lmasa bo'sh
+function usdTail(uzs) {
+  const u = usdOf(uzs);
+  return u ? ' · $' + fmtUsd(u) : '';
+}
 let cart = {};          // sotuvchi savati: product_id -> qty
 let custCache = [];     // oxirgi yuklangan mijozlar ro'yxati
 let custTotal = 0;
@@ -387,6 +400,7 @@ async function renderSeller() {
   let d;
   try { d = await api('/products'); } catch (e) { return; }
   CACHE = d;
+  setRate(d.usd_rate);
   cart = {};
   app.innerHTML =
     '<header class="topbar">' +
@@ -539,7 +553,7 @@ async function openCart() {
     $('cartTotalEl').textContent = money(total());
     const old = selected ? Number(selected.debt || 0) : 0;
     const box = $('debtBox');
-    if (old > 0) { box.hidden = false; box.innerHTML = icon('book', 's') + '<span>' + esc(selected.name) + 'ning eski nasiyasi: <b>' + money(old) + '</b></span>'; }
+    if (old > 0) { box.hidden = false; box.innerHTML = icon('book', 's') + '<span>' + esc(selected.name) + 'ning eski nasiyasi: <b>' + money(old) + '</b>' + (USD_RATE > 0 ? ' <span class="muted">(' + '$' + fmtUsd(usdOf(old)) + ')</span>' : '') + '</span>'; }
     else box.hidden = true;
     const row = $('debtTotalRow');
     if (pay === 'nasiya' && old > 0) { row.hidden = false; $('debtTotalEl').textContent = money(total() + old); }
@@ -758,9 +772,9 @@ function openSuccess(r, onClose) {
     '<div class="muted sm">' + esc(r.customer_name) + ' · ' + r.items.length + ' ta mahsulot · ' + payLabel(r.payment_method) + '</div>' +
     '<div class="ok-total">' + money(r.total_uzs) + '</div>' +
     (r.payment_method === 'nasiya' && oldDebt > 0
-      ? '<div class="muted sm">Eski nasiya: ' + money(oldDebt) + '</div>' +
-        '<div class="ok-total" style="color:var(--danger);font-size:18px">Umumiy nasiya: ' + money(r.total_with_debt_uzs) + '</div>'
-      : (oldDebt > 0 ? '<div class="sm" style="color:var(--danger)">Eski nasiyasi bor: ' + money(oldDebt) + '</div>' : '')) +
+      ? '<div class="muted sm">Eski nasiya: ' + money(oldDebt) + usdTail(oldDebt) + '</div>' +
+        '<div class="ok-total" style="color:var(--danger);font-size:18px">Umumiy nasiya: ' + money(r.total_with_debt_uzs) + usdTail(r.total_with_debt_uzs) + '</div>'
+      : (oldDebt > 0 ? '<div class="sm" style="color:var(--danger)">Eski nasiyasi bor: ' + money(oldDebt) + usdTail(oldDebt) + '</div>' : '')) +
     '</div>' +
     '<div class="muted sm" style="text-align:center">Chek printerga yuborildi. Chiqmagan bo\'lsa — qayta chop eting.</div>' +
     '<div class="modal-btns">' +
@@ -1021,7 +1035,7 @@ let NAV_COLLAPSED = localStorage.getItem('nav') === 'off';
 async function renderAdmin(tab) {
   document.onkeydown = null;
   ADMIN_TAB = tab || ADMIN_TAB;
-  if (!SHOP_NAME) { try { SHOP_NAME = (await api('/settings')).shop_name; } catch (e) { SHOP_NAME = 'Savdo'; } }
+  if (!SHOP_NAME || !USD_RATE) { try { const st = await api('/settings'); SHOP_NAME = st.shop_name; setRate(st.usd_rate); } catch (e) { SHOP_NAME = SHOP_NAME || 'Savdo'; } }
   app.innerHTML =
     '<div class="adm' + (NAV_COLLAPSED ? ' collapsed' : '') + '" id="admShell">' +
     '<aside class="side">' +
@@ -1136,6 +1150,7 @@ function splitMoney(n) {
 
 async function renderDash(el) {
   const d = await api('/stats/dashboard');
+  setRate(d.usd_rate);
   const today = todayStr();
   const month = today.slice(0, 7);
   const prevDay = d.series.days.length > 1 ? d.series.days[d.series.days.length - 2].s : 0;
@@ -1194,6 +1209,7 @@ async function renderDash(el) {
     // Nasiya
     '<section class="panel c-debt">' + panelHead('Nasiya (qarzlar)', 'Xaridorlarning umumiy qarzi', 'book') +
     '<div class="big-num"><span class="num" style="color:' + (d.debt.s > 0 ? 'var(--danger)' : 'inherit') + '">' + fmt(d.debt.s) + '</span><span class="dec" style="font-size:18px">so\'m</span></div>' +
+    (USD_RATE > 0 && d.debt.s > 0 ? '<div class="p-sub" style="margin-top:2px">≈ $' + fmtUsd(usdOf(d.debt.s)) + '</div>' : '') +
     '<div class="p-sub" style="margin:6px 0 14px">' + d.debt.c + ' ta qarzdor · jami ' + d.debt.customers + ' ta xaridor</div>' +
     '<button class="btn soft big" id="btnDebtors">' + icon('users', 's') + 'Qarzdorlarni ko\'rish</button></section>' +
 
@@ -1249,6 +1265,7 @@ function posTotal() { return posItems().reduce((a, it) => a + posPrice(it) * it.
 async function renderPos(el) {
   const [pd, sd] = await Promise.all([api('/products'), api('/sellers')]);
   CACHE = pd;
+  setRate(pd.usd_rate);
   posSellers = sd.sellers.filter(s => s.is_active);
   // Mahsulot o'chirilgan bo'lsa savatdan ham olib tashlanadi
   Object.keys(POS.cart).forEach(k => { if (!CACHE.products.find(p => p.id === +k)) { delete POS.cart[k]; delete POS.price[k]; } });
@@ -1480,9 +1497,9 @@ function posRenderFoot() {
   f.innerHTML =
     '<div class="sum-line"><span>Mahsulotlar (' + count + ')</span><b class="num">' + money(base) + '</b></div>' +
     (diff ? '<div class="sum-line"><span>Narx o\'zgarishi</span><b class="num" style="color:' + (diff < 0 ? 'var(--danger)' : 'var(--acc)') + '">' + (diff > 0 ? '+' : '−') + money(Math.abs(diff)) + '</b></div>' : '') +
-    (old > 0 ? '<div class="sum-line"><span>Eski nasiya</span><b class="num" style="color:var(--danger)">' + money(old) + '</b></div>' : '') +
-    '<div class="sum-total"><span>Jami</span><b class="num">' + money(total) + '</b></div>' +
-    (POS.pay === 'nasiya' && old > 0 ? '<div class="sum-line" style="margin-top:-8px;margin-bottom:10px"><span>Umumiy nasiya</span><b class="num" style="color:var(--danger)">' + money(total + old) + '</b></div>' : '') +
+    (old > 0 ? '<div class="sum-line"><span>Eski nasiya</span><b class="num" style="color:var(--danger)">' + money(old) + usdTail(old) + '</b></div>' : '') +
+    '<div class="sum-total"><span>Jami</span><b class="num">' + money(total) + usdTail(total) + '</b></div>' +
+    (POS.pay === 'nasiya' && old > 0 ? '<div class="sum-line" style="margin-top:-8px;margin-bottom:10px"><span>Umumiy nasiya</span><b class="num" style="color:var(--danger)">' + money(total + old) + usdTail(total + old) + '</b></div>' : '') +
     '<button class="btn big" id="posSellBtn"' + (items.length ? '' : ' disabled') + '>' + icon('printer', 's') + 'Sotish va chek chiqarish</button>';
   const ct = $('posClearTop');
   if (ct) ct.hidden = !items.length;
@@ -1642,6 +1659,7 @@ async function renderSalesTab(el) {
 async function renderProductsTab(el) {
   const d = await api('/products');
   CACHE = d;
+  setRate(d.usd_rate);
   el.innerHTML =
     pageHead('Mahsulotlar', d.products.length + ' ta mahsulot · USD kursi ' + fmt(d.usd_rate),
       '<button class="btn ghost" id="btnImport">' + icon('upload', 's') + 'Excel import</button>' +
@@ -1820,7 +1838,7 @@ async function renderCustomersTab(el) {
     $('cStats').innerHTML =
       '<div class="mini-stat"><span class="ttl-ic">' + icon('users') + '</span><div><div class="sm muted">Jami xaridorlar</div><div class="v num">' + d.total + '</div></div></div>' +
       '<div class="mini-stat"><span class="ttl-ic">' + icon('book') + '</span><div><div class="sm muted">Qarzdorlar</div><div class="v num">' + d.debtors + '</div></div></div>' +
-      '<div class="mini-stat"><span class="ttl-ic">' + icon('wallet') + '</span><div><div class="sm muted">Umumiy qarz</div><div class="v num" style="color:' + (d.debt_sum > 0 ? 'var(--danger)' : 'inherit') + '">' + money(d.debt_sum) + '</div></div></div>';
+      '<div class="mini-stat"><span class="ttl-ic">' + icon('wallet') + '</span><div><div class="sm muted">Umumiy qarz</div><div class="v num" style="color:' + (d.debt_sum > 0 ? 'var(--danger)' : 'inherit') + '">' + money(d.debt_sum) + '</div>' + (USD_RATE > 0 && d.debt_sum > 0 ? '<div class="sm muted">$' + fmtUsd(usdOf(d.debt_sum)) + '</div>' : '') + '</div></div>';
     $('cTable').innerHTML = d.customers.length
       ? '<div class="muted sm" style="margin:0 4px 8px">' + (q || CUST_FILTER.debt ? d.customers.length + ' ta natija' : 'Oxirgi ' + d.customers.length + ' ta xaridor') + '</div>' +
         '<div class="table-wrap"><table class="table"><thead>' +
@@ -1828,7 +1846,8 @@ async function renderCustomersTab(el) {
         d.customers.map(c =>
           '<tr data-hist="' + c.id + '" style="cursor:pointer">' +
           '<td><div class="t-name">' + avatar(c.name, 36) + '<div><b>' + hl(c.name, q) + '</b><div class="sub">' + (c.phone ? hl(c.phone, q) : 'telefon yo\'q') + (c.first_seller ? ' · ' + esc(c.first_seller) : '') + '</div></div></div></td>' +
-          '<td class="r num"><b' + (c.debt_uzs > 0 ? ' class="debt-red"' : '') + '>' + fmt(c.debt_uzs) + '</b></td>' +
+          '<td class="r num"><b' + (c.debt_uzs > 0 ? ' class="debt-red"' : '') + '>' + fmt(c.debt_uzs) + '</b>' +
+          (USD_RATE > 0 && c.debt_uzs > 0 ? '<div class="sub muted">$' + fmtUsd(usdOf(c.debt_uzs)) + '</div>' : '') + '</td>' +
           '<td class="r num">' + c.visits + ' ta</td>' +
           '<td class="r num">' + fmt(c.total_spent) + '</td>' +
           '<td class="muted num">' + esc(c.last_visit || '—') + '</td>' +
@@ -1872,20 +1891,21 @@ async function openCustomerHistory(id, onChange) {
     '<div><h3 style="margin:0">' + esc(c.name) + '</h3>' +
     '<div class="muted sm">' + esc(c.phone || 'telefon yo\'q') + (c.first_seller ? ' · birinchi sotuvchi: ' + esc(c.first_seller) : '') + (c.first_seen ? ' · ' + c.first_seen : '') + '</div></div></div>' +
     '<div class="stat-cards"><div class="scard"><div class="sc-l">Hozirgi qarzi</div>' +
-    '<div class="sc-v num"' + (c.debt_uzs > 0 ? ' style="color:var(--danger)"' : '') + '>' + money(c.debt_uzs) + '</div></div>' +
+    '<div class="sc-v num"' + (c.debt_uzs > 0 ? ' style="color:var(--danger)"' : '') + '>' + money(c.debt_uzs) + '</div>' +
+    (USD_RATE > 0 && c.debt_uzs > 0 ? '<div class="sc-s" style="color:var(--muted)">≈ $' + fmtUsd(usdOf(c.debt_uzs)) + ' · kurs ' + fmt(USD_RATE) + '</div>' : '') + '</div>' +
     '<div class="scard"><div class="sc-l">Savdolar</div><div class="sc-v num">' + d.sales.filter(s => !s.is_cancelled).length + ' ta</div></div></div>' +
     '<div class="filters">' +
     '<button class="btn" id="chPay">' + icon('cash', 's') + 'To\'lov qayd etish</button>' +
     '<button class="btn ghost" id="chFix">' + icon('edit', 's') + 'Qarzni tuzatish</button>' +
     '</div>' +
     '<h4 class="sec-t">Savdo tarixi</h4>' +
-    '<div class="panel" style="max-height:230px;overflow-y:auto;background:var(--soft2);padding:4px 14px">' +
+    '<div class="panel" id="chSales" style="max-height:230px;overflow-y:auto;background:var(--soft2);padding:4px 14px">' +
     (d.sales.length ? d.sales.map(s =>
-      '<div class="li-row' + (s.is_cancelled ? ' row-off' : '') + '"><div><b>' + chekNo(s.id) + '</b> · <span class="num">' + s.t + '</span>' +
+      '<div class="li-row sale-link' + (s.is_cancelled ? ' row-off' : '') + '" data-view="' + s.id + '" title="Chekni ko\'rish"><div><b>' + chekNo(s.id) + '</b> · <span class="num">' + s.t + '</span>' +
       '<div class="muted sm">' + esc(s.seller_name) + ' · ' + s.items_count + ' ta · ' + payLabel(s.payment_method) +
       (s.payment_method === 'nasiya' && s.old_debt_uzs > 0 ? ' · eski nasiya ' + fmt(s.old_debt_uzs) + ' → umumiy ' + fmt(s.old_debt_uzs + s.total_uzs) : '') +
       (s.is_cancelled ? ' · bekor' : '') +
-      '</div></div><b class="num">' + money(s.total_uzs) + '</b></div>'
+      '</div></div><div class="sale-right"><b class="num">' + money(s.total_uzs) + '</b>' + icon('eye', 's') + '</div></div>'
     ).join('') : '<div class="muted" style="padding:10px 0">Savdo yo\'q</div>') + '</div>' +
     '<h4 class="sec-t">Qarz harakatlari</h4>' +
     '<div class="panel" style="max-height:230px;overflow-y:auto;background:var(--soft2);padding:4px 14px">' +
@@ -1898,9 +1918,11 @@ async function openCustomerHistory(id, onChange) {
     '<button class="btn ghost big" id="chClose">Yopish</button>', true
   );
   $('chClose').onclick = closeModal;
+  const salesBox = $('chSales');
+  if (salesBox) salesBox.onclick = e => { const r = e.target.closest('[data-view]'); if (r) receiptModal(+r.dataset.view); };
   $('chPay').onclick = async () => {
     if (c.debt_uzs <= 0) return toast('Bu xaridorning qarzi yo\'q');
-    const amt = await askModal("To'lov summasi (jami qarz: " + fmt(c.debt_uzs) + " so'm)", { input: true, numeric: true, placeholder: "Summa (so'm)", okText: 'Qayd etish' });
+    const amt = await askModal("To'lov summasi (jami qarz: " + dualMoney(c.debt_uzs) + ")", { input: true, numeric: true, placeholder: "Summa (so'm)", okText: 'Qayd etish' });
     if (amt === null) return;
     const amount = parseInt(String(amt).replace(/\s+/g, ''), 10);
     if (!(amount > 0)) return toast('Summani kiriting');
@@ -1914,7 +1936,7 @@ async function openCustomerHistory(id, onChange) {
     } catch (e) { toast(e.message); }
   };
   $('chFix').onclick = async () => {
-    const v = await askModal('Qarzning yangi qiymati (hozir: ' + fmt(c.debt_uzs) + ')', { input: true, numeric: true, placeholder: "Yangi qarz (so'm)", okText: 'Davom etish' });
+    const v = await askModal('Qarzning yangi qiymati (hozir: ' + dualMoney(c.debt_uzs) + ')', { input: true, numeric: true, placeholder: "Yangi qarz (so'm)", okText: 'Davom etish' });
     if (v === null) return;
     const nd = parseInt(String(v).replace(/\s+/g, ''), 10);
     if (!isFinite(nd) || nd < 0) return toast('Summa noto\'g\'ri');
@@ -2001,6 +2023,7 @@ async function openDuplicates(onDone) {
 /* ===== Sozlamalar ===== */
 async function renderSettingsTab(el) {
   const s = await api('/settings');
+  setRate(s.usd_rate);
   el.innerHTML =
     pageHead('Sozlamalar', 'Do\'kon, chek, printer va xavfsizlik', '') +
     '<div class="settings-grid">' +
@@ -2052,6 +2075,7 @@ async function renderSettingsTab(el) {
         }
       });
       SHOP_NAME = $('stName').value.trim() || SHOP_NAME;
+      setRate(parseFloat($('stRate').value));
       toast('Sozlamalar saqlandi', true);
     } catch (e) { toast(e.message); }
   };
