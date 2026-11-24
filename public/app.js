@@ -1266,12 +1266,13 @@ async function renderPos(el) {
     '</div>' +
     '<aside class="order" aria-label="Joriy savdo">' +
     '<div class="order-head">' +
-    '<div class="row"><div><div class="muted sm">Joriy savdo</div><div class="order-no">Yangi chek</div></div>' +
-    '<div style="text-align:right"><div class="muted sm" style="margin-bottom:4px">Sotuvchi</div><select class="o-sel" id="posSeller" aria-label="Sotuvchi">' +
-    '<option value="">Admin (o\'zim)</option>' + posSellers.map(s => '<option value="' + s.id + '"' + (String(POS.seller) === String(s.id) ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') +
-    '</select></div></div>' +
+    '<div class="oh-row"><div class="oh-title">Yangi chek</div><div class="oh-right">' +
+    '<select class="o-sel" id="posSeller" aria-label="Sotuvchi"><option value="">Admin (o\'zim)</option>' +
+    posSellers.map(s => '<option value="' + s.id + '"' + (String(POS.seller) === String(s.id) ? ' selected' : '') + '>' + esc(s.name) + '</option>').join('') + '</select>' +
+    '<button class="icon-btn sm flat danger" id="posClearTop" title="Savatni tozalash" aria-label="Savatni tozalash" hidden>' + icon('trash', 's') + '</button>' +
+    '</div></div>' +
     '<div id="custArea"></div>' +
-    '<div class="seg" id="posPay" style="margin-top:12px">' +
+    '<div class="seg sm pos-pay" id="posPay">' +
     Object.keys(PAY).map(k => '<button class="' + (POS.pay === k ? 'on' : '') + '" data-pay="' + k + '">' + icon(PAY[k].ic) + PAY[k].label + '</button>').join('') + '</div>' +
     '</div>' +
     '<div class="order-body" id="oItems"></div>' +
@@ -1300,6 +1301,7 @@ async function renderPos(el) {
   $('posGrid').onclick = e => { const c = e.target.closest('.pos-card'); if (c) posAdd(+c.dataset.id); };
   $('posGrid').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { const c = e.target.closest('.pos-card'); if (c) { e.preventDefault(); posAdd(+c.dataset.id); } } };
   $('posSeller').onchange = e => { POS.seller = e.target.value; };
+  $('posClearTop').onclick = posClearCart;
   $('posPay').onclick = e => {
     const b = e.target.closest('[data-pay]');
     if (!b) return;
@@ -1479,16 +1481,17 @@ function posRenderFoot() {
     (old > 0 ? '<div class="sum-line"><span>Eski nasiya</span><b class="num" style="color:var(--danger)">' + money(old) + '</b></div>' : '') +
     '<div class="sum-total"><span>Jami</span><b class="num">' + money(total) + '</b></div>' +
     (POS.pay === 'nasiya' && old > 0 ? '<div class="sum-line" style="margin-top:-8px;margin-bottom:10px"><span>Umumiy nasiya</span><b class="num" style="color:var(--danger)">' + money(total + old) + '</b></div>' : '') +
-    '<button class="btn big" id="posSellBtn"' + (items.length ? '' : ' disabled') + '>' + icon('printer', 's') + 'Sotish va chek chiqarish</button>' +
-    (items.length ? '<button class="link-btn" id="posClear" style="width:100%;justify-content:center">Savatni tozalash</button>' : '') +
-    '<div class="kbd-hint"><kbd>/</kbd> mahsulot · <kbd>F2</kbd> xaridor · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> sotish</div>';
+    '<button class="btn big" id="posSellBtn"' + (items.length ? '' : ' disabled') + '>' + icon('printer', 's') + 'Sotish va chek chiqarish</button>';
+  const ct = $('posClearTop');
+  if (ct) ct.hidden = !items.length;
   $('posSellBtn').onclick = posSell;
-  const c = $('posClear');
-  if (c) c.onclick = async () => {
-    if (!await askModal('Savat tozalansinmi?', { okText: 'Tozalash', danger: true })) return;
-    POS.cart = {}; POS.price = {};
-    posRenderGrid(); posRenderOrder();
-  };
+}
+
+async function posClearCart() {
+  if (!Object.keys(POS.cart).length) return;
+  if (!await askModal('Savat tozalansinmi?', { okText: 'Tozalash', danger: true })) return;
+  POS.cart = {}; POS.price = {};
+  posRenderGrid(); posRenderOrder();
 }
 
 function posBindOrder() {
