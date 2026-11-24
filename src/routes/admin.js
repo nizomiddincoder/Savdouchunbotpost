@@ -271,6 +271,129 @@ router.patch('/customers/:id/debt', adminOnly, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ================= Dublikat xaridorlar (bir xil telefon) ================= */
+// Telefonning oxirgi 9 raqami bo'yicha normallashtirish (998901234567 = 901234567)
+const PHONE_KEY = `right(regexp_replace(coalesce(phone, ''), '\\D', '', 'g'), 9)`;
+const PHONE_DIGITS = `regexp_replace(coalesce(phone, ''), '\\D', '', 'g')`;
+
+/* Bir xil telefon raqamli xaridorlar guruhlari */
+router.get('/customers/duplicates', adminOnly, async (req, res, next) => {
+  try {
+    const { rows } = await q(`
+      WITH c AS (
+        SELECT id, name, phone, debt_uzs, created_at,
+          ${PHONE_KEY} AS pk,
+          (SELECT count(*) FROM sales v WHERE v.customer_id = customers.id AND v.is_cancelled = false) AS visits,
+          (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.customer_id = customers.id AND v.is_cancelled = false) AS spent
+        FROM customers
+        WHERE length(${PHONE_DIGITS}) >= 7
+      )
+      SELECT pk, count(*) AS n,
+        json_agg(json_build_object(
+          'id', id, 'name', name, 'phone', phone, 'debt_uzs', debt_uzs,
+          'visits', visits, 'spent', spent,
+          'first_seen', to_char((created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD')
+        ) ORDER BY visits DESC, spent DESC, created_at) AS members
+      FROM c GROUP BY pk HAVING count(*) > 1
+      ORDER BY count(*) DESC, pk`);
+    res.json({
+      groups: rows.map(r => ({
+        phone_key: r.pk,
+        members: r.members.map(m => ({
+          id: m.id, name: m.name, phone: m.phone, first_seen: m.first_seen,
+          debt_uzs: Number(m.debt_uzs), visits: Number(m.visits), spent: Number(m.spent)
+        }))
+      }))
+    });
+  } catch (e) { next(e); }
+});
+
+/* Bir guruhni birlashtirish: keep_id — qoladigan xaridor; ids — birlashtiriladigan hammasi.
+   Savdolar va qarz harakatlari keep_id ga ko'chiriladi, qarzlar QO'SHILADI, tarix saqlanadi. */
+async function mergeInto(client, keepId, allIds, byName) {
+  const ids = [...new Set(allIds.map(x => parseInt(x, 10)).filter(Boolean))];
+  const others = ids.filter(x => x !== keepId);
+  if (!others.length) return 0;
+  const rows = (await client.query(
+    'SELECT id, name, phone, debt_uzs FROM customers WHERE id = ANY($1::int[]) FOR UPDATE',
+    [[keepId, ...others]])).rows;
+  const keep = rows.find(r => r.id === keepId);
+  if (!keep) throw new Error('Asosiy xaridor topilmadi');
+  const merged = rows.filter(r => r.id !== keepId);
+  if (!merged.length) return 0;
+  const mergedIds = merged.map(r => r.id);
+  // Savdolar va qarz harakatlarini asosiy xaridorga ko'chiramiz (savdodagi ism o'zgarmaydi)
+  await client.query('UPDATE sales SET customer_id = $1 WHERE customer_id = ANY($2::int[])', [keepId, mergedIds]);
+  await client.query('UPDATE customer_payments SET customer_id = $1 WHERE customer_id = ANY($2::int[])', [keepId, mergedIds]);
+  // Birinchi sotuvchi bo'sh bo'lsa, birlashtirilganlardan olamiz
+  await client.query(
+    `UPDATE customers SET first_seller_id = coalesce(first_seller_id,
+       (SELECT first_seller_id FROM customers WHERE id = ANY($2::int[]) AND first_seller_id IS NOT NULL LIMIT 1))
+     WHERE id = $1`, [keepId, mergedIds]);
+  const addDebt = merged.reduce((a, r) => a + Number(r.debt_uzs || 0), 0);
+  const keepPhone = keep.phone || (merged.find(r => r.phone) || {}).phone || null;
+  const newDebt = Number(keep.debt_uzs || 0) + addDebt;
+  await client.query('UPDATE customers SET debt_uzs = $1, phone = $2 WHERE id = $3', [newDebt, keepPhone, keepId]);
+  // Audit yozuvi — qarz tarixida "birlashtirildi" ko'rinib tursin
+  await client.query(
+    `INSERT INTO customer_payments (customer_id, amount_uzs, kind, note, by_name, debt_after_uzs)
+     VALUES ($1, $2, 'adjust', $3, $4, $5)`,
+    [keepId, addDebt, 'Dublikat birlashtirildi: ' + merged.map(r => r.name).join(', '), byName || 'Admin', newDebt]);
+  await client.query('DELETE FROM customers WHERE id = ANY($1::int[])', [mergedIds]);
+  return merged.length;
+}
+
+router.post('/customers/merge', adminOnly, async (req, res, next) => {
+  try {
+    const keepId = parseInt(req.body.keep_id, 10);
+    const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
+    if (!keepId) throw new Error('Qoldiriladigan xaridor tanlanmagan');
+    if (ids.length < 2) throw new Error('Birlashtirish uchun kamida 2 ta xaridor kerak');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const n = await mergeInto(client, keepId, ids, req.user.name);
+      await client.query('COMMIT');
+      res.json({ ok: true, merged: n });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) { next(e); }
+});
+
+/* Barcha dublikatlarni avtomatik birlashtirish: har guruhda savdosi ko'pi (bo'lmasa eng eskisi) qoladi */
+router.post('/customers/merge-all', adminOnly, async (req, res, next) => {
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const groups = (await client.query(`
+        WITH c AS (
+          SELECT id, ${PHONE_KEY} AS pk, created_at,
+            (SELECT count(*) FROM sales v WHERE v.customer_id = customers.id AND v.is_cancelled = false) AS visits,
+            (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.customer_id = customers.id AND v.is_cancelled = false) AS spent
+          FROM customers WHERE length(${PHONE_DIGITS}) >= 7
+        )
+        SELECT pk,
+          (array_agg(id ORDER BY visits DESC, spent DESC, created_at))[1] AS keep_id,
+          array_agg(id) AS ids
+        FROM c GROUP BY pk HAVING count(*) > 1`)).rows;
+      let total = 0;
+      for (const g of groups) total += await mergeInto(client, g.keep_id, g.ids, req.user.name);
+      await client.query('COMMIT');
+      res.json({ ok: true, groups: groups.length, merged: total });
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (e) { next(e); }
+});
+
 /* ================= Dashboard ================= */
 router.get('/stats/dashboard', adminOnly, async (req, res, next) => {
   try {

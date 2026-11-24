@@ -132,6 +132,17 @@ input, select, textarea { font: inherit; color: var(--ink); }
   font-weight: 700; font-size: 13px; color: #fff; background: var(--acc);
 }
 
+/* Dublikat birlashtirish */
+.dup-group { background: var(--soft2); border-radius: var(--r-m); padding: 12px; margin-bottom: 10px; }
+.dup-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
+.dup-head .ic { color: var(--muted); }
+.dup-mem { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 10px; cursor: pointer; }
+.dup-mem:hover { background: var(--card); }
+.dup-mem input { width: 18px; height: 18px; accent-color: var(--acc); flex: none; }
+.dup-mem .dm-main { flex: 1; min-width: 0; }
+.dup-mem .dm-main b { display: block; }
+.dup-group > .btn { margin-top: 8px; width: 100%; }
+
 /* ===== Toast ===== */
 .toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(16px);
@@ -476,7 +487,9 @@ body.dark .ch-bar { background-color: #2f6b4b; }
 .pos-top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .pos-top .search-box { flex: 1; min-width: 240px; }
 .pos-note { color: var(--warn); font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
-.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 6px; }
+/* Qidiruv + saralash — pastga aylantirilganda tepada qotib turadi */
+.pos-stick { position: sticky; top: 14px; z-index: 20; background: var(--bg); padding: 2px 0 10px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 0; }
 .chip {
   display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 16px; border-radius: 999px; background: var(--card);
   font-weight: 600; font-size: 13.5px; color: var(--ink2); box-shadow: inset 0 0 0 1px var(--line);
@@ -600,6 +613,7 @@ body.dark .ch-bar { background-color: #2f6b4b; }
   .page-title { font-size: 26px; }
   .page-head { margin: 10px 4px 14px; }
   .order { position: static; height: auto; max-height: none; }
+  .pos-stick { top: 52px; margin: 0 -10px; padding: 8px 10px; }
   .pos-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .pos-card .thumb { width: 92px; height: 92px; }
 }

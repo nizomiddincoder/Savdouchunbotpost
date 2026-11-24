@@ -1257,10 +1257,12 @@ async function renderPos(el) {
   el.innerHTML =
     '<div class="pos">' +
     '<div class="pos-main">' +
+    '<div class="pos-stick">' +
     '<div class="pos-top"><div class="search-box">' + icon('search') +
     '<input class="search" id="posQ" placeholder="Mahsulot nomi bo\'yicha izlash..." autocomplete="off" value="' + esc(POS.q) + '"><kbd>/</kbd></div>' +
     '<button class="btn ghost" id="posAddP">' + icon('plus', 's') + 'Mahsulot</button></div>' +
     '<div class="chips" id="posSort">' + sorts.map(s => '<button class="chip' + (POS.sort === s[0] ? ' on' : '') + '" data-s="' + s[0] + '">' + icon(s[2]) + s[1] + '</button>').join('') + '</div>' +
+    '</div>' +
     '<div class="pos-h"><h2>Mahsulotni tanlang</h2><span class="muted sm" id="posCount"></span></div>' +
     '<div class="pos-grid" id="posGrid"></div>' +
     '</div>' +
@@ -1793,7 +1795,8 @@ const CUST_FILTER = { q: '', debt: false, sort: 'recent' };
 async function renderCustomersTab(el) {
   const month = todayStr().slice(0, 7);
   el.innerHTML =
-    pageHead('Xaridorlar', 'Ism (lotin yoki kirill) yoki telefon raqami bo\'yicha tez qidiring', '') +
+    pageHead('Xaridorlar', 'Ism (lotin yoki kirill) yoki telefon raqami bo\'yicha tez qidiring',
+      '<button class="btn ghost" id="btnDup">' + icon('users', 's') + 'Dublikatlar') +
     '<div class="mini-stats" id="cStats"></div>' +
     '<div class="toolbar">' +
     '<div class="search-box">' + icon('search') + '<input class="search" id="cQ" placeholder="Masalan: Ali, Алишер yoki 90 123..." autocomplete="off" value="' + esc(CUST_FILTER.q) + '"><kbd>/</kbd></div>' +
@@ -1844,6 +1847,7 @@ async function renderCustomersTab(el) {
     load();
   };
   $('cSort').onchange = e => { CUST_FILTER.sort = e.target.value; load(); };
+  $('btnDup').onclick = () => openDuplicates(load);
   $('cTable').onclick = e => {
     const h = e.target.closest('[data-hist]');
     if (h) openCustomerHistory(+h.dataset.hist, load);
@@ -1922,6 +1926,75 @@ async function openCustomerHistory(id, onChange) {
       openCustomerHistory(id, onChange);
       if (onChange) onChange();
     } catch (e) { toast(e.message); }
+  };
+}
+
+/* ===== Dublikat xaridorlarni birlashtirish ===== */
+async function openDuplicates(onDone) {
+  let d;
+  try { d = await api('/customers/duplicates'); } catch (e) { return toast(e.message); }
+  if (!d.groups.length) {
+    openModal('<div class="m-icon">' + icon('checkCircle') + '</div><h3 style="justify-content:center">Dublikat topilmadi</h3>' +
+      '<div class="muted sm" style="text-align:center">Bir xil telefon raqamli xaridorlar yo\'q — hammasi toza.</div>' +
+      '<div style="height:14px"></div><button class="btn big" id="dClose">Yopish</button>');
+    $('dClose').onclick = closeModal;
+    return;
+  }
+  const groups = d.groups;
+  const total = groups.reduce((a, g) => a + g.members.length, 0);
+  const body = groups.map((g, gi) =>
+    '<div class="dup-group" data-gi="' + gi + '">' +
+    '<div class="dup-head">' + icon('phone', 's') + '<span>' + esc(g.members[0].phone || g.phone_key) + '</span>' +
+    '<span class="badge b-warn nodot">' + g.members.length + ' ta yozuv</span></div>' +
+    g.members.map((m, i) =>
+      '<label class="dup-mem">' +
+      '<input type="radio" name="keep_' + gi + '" value="' + m.id + '"' + (i === 0 ? ' checked' : '') + '>' +
+      '<div class="dm-main"><b>' + esc(m.name) + '</b>' +
+      '<div class="muted sm">' + m.visits + ' ta savdo · xarid ' + fmt(m.spent) +
+      (m.debt_uzs > 0 ? ' · <span style="color:var(--danger)">qarz ' + fmt(m.debt_uzs) + '</span>' : '') +
+      (m.first_seen ? ' · ' + esc(m.first_seen) : '') + '</div></div>' +
+      (i === 0 ? '<span class="badge b-ok">tavsiya</span>' : '') +
+      '</label>').join('') +
+    '<button class="btn" data-merge="' + gi + '">' + icon('users', 's') + 'Shu nom ostida birlashtirish</button>' +
+    '</div>').join('');
+  openModal(
+    '<h3>' + icon('users') + 'Dublikat xaridorlar</h3>' +
+    '<div class="muted sm">Bir xil telefon raqamli xaridorlar. Birlashtirilganda qarzlar <b>qo\'shiladi</b>, barcha savdo va oldi-berdi tarixi saqlanadi — hech narsa yo\'qolmaydi. Qaysi ism qolishini tanlang.</div>' +
+    '<button class="btn big" id="dMergeAll" style="margin:14px 0 6px">' + icon('sparkle', 's') + 'Barchasini avtomatik birlashtirish (' + groups.length + ' guruh · ' + total + ' yozuv)</button>' +
+    '<div class="hint" style="margin:0 0 10px">' + icon('info') + 'Avtomatik rejimda har guruhda savdosi eng ko\'p xaridor qoldiriladi.</div>' +
+    '<div id="dupList">' + body + '</div>' +
+    '<button class="btn ghost big" id="dClose">Yopish</button>', true
+  );
+  $('dClose').onclick = closeModal;
+  const refresh = () => { if (onDone) onDone(); openDuplicates(onDone); };
+  $('dupList').onclick = async e => {
+    const b = e.target.closest('[data-merge]');
+    if (!b) return;
+    const gi = +b.dataset.merge;
+    const g = groups[gi];
+    const keepEl = document.querySelector('input[name="keep_' + gi + '"]:checked');
+    const keepId = keepEl ? +keepEl.value : g.members[0].id;
+    const keep = g.members.find(m => m.id === keepId);
+    if (!await askModal('«' + keep.name + '» nomi ostida birlashtirilsinmi?', {
+      text: g.members.length + ' ta yozuv bittaga aylanadi. Qarzlar qo\'shiladi, savdo va oldi-berdi tarixi saqlanadi.', okText: 'Birlashtirish'
+    })) return;
+    b.disabled = true;
+    try {
+      const r = await api('/customers/merge', { method: 'POST', body: { keep_id: keepId, ids: g.members.map(m => m.id) } });
+      toast(r.merged + ' ta yozuv birlashtirildi', true);
+      refresh();
+    } catch (err) { toast(err.message); b.disabled = false; }
+  };
+  $('dMergeAll').onclick = async function () {
+    if (!await askModal('Barcha dublikatlar birlashtirilsinmi?', {
+      text: 'Har guruhda savdosi eng ko\'p xaridor qoladi. Qarzlar qo\'shiladi, tarix saqlanadi.', okText: 'Hammasini birlashtirish'
+    })) return;
+    this.disabled = true;
+    try {
+      const r = await api('/customers/merge-all', { method: 'POST' });
+      toast(r.merged + ' ta yozuv ' + r.groups + ' guruhda birlashtirildi', true);
+      refresh();
+    } catch (e) { toast(e.message); this.disabled = false; }
   };
 }
 
