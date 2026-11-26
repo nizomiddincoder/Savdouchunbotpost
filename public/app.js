@@ -1808,20 +1808,38 @@ async function renderSellersTab(el) {
 }
 
 /* ===== Xaridorlar — tezkor qidiruv ===== */
-const CUST_FILTER = { q: '', debt: false, sort: 'recent' };
+const CUST_FILTER = { q: '', debt: false, sort: 'recent', period: 'all', from: '', to: '' };
+// Tanlangan sana presetidan [from, to] oralig'ini hisoblaydi
+function custRange() {
+  const t = todayStr();
+  if (CUST_FILTER.period === 'today') return { from: t, to: t };
+  if (CUST_FILTER.period === '7') { const d = new Date(); d.setDate(d.getDate() - 6); return { from: d.toLocaleDateString('sv-SE'), to: t }; }
+  if (CUST_FILTER.period === 'month') return { from: t.slice(0, 8) + '01', to: t };
+  if (CUST_FILTER.period === 'range') return { from: CUST_FILTER.from, to: CUST_FILTER.to };
+  return { from: '', to: '' };
+}
 
 async function renderCustomersTab(el) {
   const month = todayStr().slice(0, 7);
+  const DPRESETS = [['all', 'Butun davr'], ['today', 'Bugun'], ['7', '7 kun'], ['month', 'Bu oy'], ['range', 'Oraliq']];
   el.innerHTML =
     pageHead('Xaridorlar', 'Ism (lotin yoki kirill) yoki telefon raqami bo\'yicha tez qidiring',
       '<button class="btn ghost" id="btnDup">' + icon('users', 's') + 'Dublikatlar') +
     '<div class="mini-stats" id="cStats"></div>' +
     '<div class="toolbar">' +
     '<div class="search-box">' + icon('search') + '<input class="search" id="cQ" placeholder="Masalan: Ali, Алишер yoki 90 123..." autocomplete="off" value="' + esc(CUST_FILTER.q) + '"><kbd>/</kbd></div>' +
-    '<div class="seg sm" id="cDebt"><button class="' + (CUST_FILTER.debt ? '' : 'on') + '" data-d="0">Hammasi</button><button class="' + (CUST_FILTER.debt ? 'on' : '') + '" data-d="1">Qarzdorlar</button></div>' +
+    '<div class="seg sm" id="cDebt"><button class="' + (CUST_FILTER.debt ? '' : 'on') + '" data-d="0">Hammasi</button><button class="' + (CUST_FILTER.debt ? 'on' : '') + '" data-d="1">' + icon('book', 's') + 'Qarzdorlar</button></div>' +
     '<select class="inp" id="cSort" style="width:auto;border-radius:999px" aria-label="Saralash">' +
-    [['recent', 'Oxirgi xarid'], ['debt', 'Qarz bo\'yicha'], ['spent', 'Xarid summasi'], ['name', 'Ism (A–Z)']]
+    [['recent', 'Saralash: Oxirgi xarid'], ['name', 'Ism: A–Z'], ['name_desc', 'Ism: Z–A'], ['new', 'Sana: yangidan'], ['old', 'Sana: eskidan'], ['debt', 'Qarz: ko\'pdan'], ['spent', 'Xarid summasi']]
       .map(o => '<option value="' + o[0] + '"' + (CUST_FILTER.sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
+    '</div>' +
+    '<div class="toolbar" style="margin-top:-4px">' +
+    '<span class="flt-lbl">' + icon('calendar', 's') + 'Sana:</span>' +
+    '<div class="chips" id="cPeriod">' + DPRESETS.map(p => '<button class="chip' + (CUST_FILTER.period === p[0] ? ' on' : '') + '" data-p="' + p[0] + '">' + esc(p[1]) + '</button>').join('') + '</div>' +
+    '<div id="cRange" class="range-box"' + (CUST_FILTER.period === 'range' ? '' : ' hidden') + '>' +
+    '<input type="date" class="inp" id="cFrom" value="' + esc(CUST_FILTER.from) + '" aria-label="Dan">' +
+    '<span class="muted">—</span>' +
+    '<input type="date" class="inp" id="cTo" value="' + esc(CUST_FILTER.to) + '" aria-label="Gacha"></div>' +
     '</div>' +
     '<div id="cTable"></div>';
 
@@ -1832,15 +1850,24 @@ async function renderCustomersTab(el) {
     if (CUST_FILTER.q) p.set('q', CUST_FILTER.q);
     if (CUST_FILTER.debt) p.set('debt', '1');
     p.set('sort', CUST_FILTER.sort);
+    const rng = custRange();
+    if (rng.from) p.set('from', rng.from);
+    if (rng.to) p.set('to', rng.to);
     const d = await api('/customers?' + p.toString());
     if (my !== seq || !$('cTable')) return;
     const q = CUST_FILTER.q;
+    const filtered = CUST_FILTER.debt || !!(rng.from || rng.to) || !!q;
+    const periodTxt = DPRESETS.find(x => x[0] === CUST_FILTER.period)[1];
     $('cStats').innerHTML =
       '<div class="mini-stat"><span class="ttl-ic">' + icon('users') + '</span><div><div class="sm muted">Jami xaridorlar</div><div class="v num">' + d.total + '</div></div></div>' +
       '<div class="mini-stat"><span class="ttl-ic">' + icon('book') + '</span><div><div class="sm muted">Qarzdorlar</div><div class="v num">' + d.debtors + '</div></div></div>' +
       '<div class="mini-stat"><span class="ttl-ic">' + icon('wallet') + '</span><div><div class="sm muted">Umumiy qarz</div><div class="v num" style="color:' + (d.debt_sum > 0 ? 'var(--danger)' : 'inherit') + '">' + money(d.debt_sum) + '</div>' + (USD_RATE > 0 && d.debt_sum > 0 ? '<div class="sm muted">$' + fmtUsd(usdOf(d.debt_sum)) + '</div>' : '') + '</div></div>';
+    const resLine = filtered
+      ? d.customers.length + ' ta natija' + (CUST_FILTER.period !== 'all' ? ' · ' + periodTxt : '') +
+        (d.shown_debtors > 0 ? ' · ' + d.shown_debtors + ' qarzdor, jami qarz: ' + money(d.shown_debt) + usdTail(d.shown_debt) : '')
+      : 'Oxirgi ' + d.customers.length + ' ta xaridor';
     $('cTable').innerHTML = d.customers.length
-      ? '<div class="muted sm" style="margin:0 4px 8px">' + (q || CUST_FILTER.debt ? d.customers.length + ' ta natija' : 'Oxirgi ' + d.customers.length + ' ta xaridor') + '</div>' +
+      ? '<div class="muted sm" style="margin:0 4px 8px">' + resLine + '</div>' +
         '<div class="table-wrap"><table class="table"><thead>' +
         '<tr><th>Xaridor</th><th class="r">Qarz (nasiya)</th><th class="r">Savdolar</th><th class="r">Jami xarid</th><th>Oxirgi savdo</th><th>Holati</th><th></th></tr></thead><tbody>' +
         d.customers.map(c =>
@@ -1866,6 +1893,22 @@ async function renderCustomersTab(el) {
     load();
   };
   $('cSort').onchange = e => { CUST_FILTER.sort = e.target.value; load(); };
+  $('cPeriod').onclick = e => {
+    const b = e.target.closest('[data-p]');
+    if (!b) return;
+    CUST_FILTER.period = b.dataset.p;
+    $('cPeriod').querySelectorAll('.chip').forEach(x => x.classList.toggle('on', x === b));
+    const rb = $('cRange');
+    if (CUST_FILTER.period === 'range') {
+      rb.hidden = false;
+      // Oraliq uchun boshlang'ich qiymat — shu oy
+      if (!CUST_FILTER.from) { CUST_FILTER.from = todayStr().slice(0, 8) + '01'; $('cFrom').value = CUST_FILTER.from; }
+      if (!CUST_FILTER.to) { CUST_FILTER.to = todayStr(); $('cTo').value = CUST_FILTER.to; }
+    } else rb.hidden = true;
+    load();
+  };
+  $('cFrom').onchange = e => { CUST_FILTER.from = e.target.value; if (CUST_FILTER.period === 'range') load(); };
+  $('cTo').onchange = e => { CUST_FILTER.to = e.target.value; if (CUST_FILTER.period === 'range') load(); };
   $('btnDup').onclick = () => openDuplicates(load);
   $('cTable').onclick = e => {
     const h = e.target.closest('[data-hist]');

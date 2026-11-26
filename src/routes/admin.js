@@ -82,8 +82,19 @@ router.get('/customers', adminOnly, async (req, res, next) => {
     const debtOnly = req.query.debt === '1' ? ' AND c.debt_uzs > 0' : '';
     const order = req.query.sort === 'debt' ? 'c.debt_uzs DESC'
       : req.query.sort === 'spent' ? 'total_spent DESC'
-      : req.query.sort === 'name' ? 'c.name'
+      : req.query.sort === 'name' ? 'lower(c.name) ASC'
+      : req.query.sort === 'name_desc' ? 'lower(c.name) DESC'
+      : req.query.sort === 'new' ? 'c.created_at DESC'
+      : req.query.sort === 'old' ? 'c.created_at ASC'
       : 'max(v.created_at) DESC NULLS LAST';
+    // Sana oralig'i: shu davrda savdosi (bekor qilinmagan) bo'lgan xaridorlar
+    const re = /^\d{4}-\d{2}-\d{2}$/;
+    const dateConds = [];
+    if (re.test(req.query.from || '')) { params.push(req.query.from); dateConds.push(`(v2.created_at AT TIME ZONE '${TZ}')::date >= $${params.length}::date`); }
+    if (re.test(req.query.to || '')) { params.push(req.query.to); dateConds.push(`(v2.created_at AT TIME ZONE '${TZ}')::date <= $${params.length}::date`); }
+    const dateCond = dateConds.length
+      ? ` AND EXISTS (SELECT 1 FROM sales v2 WHERE v2.customer_id = c.id AND v2.is_cancelled = false AND ${dateConds.join(' AND ')})`
+      : '';
     const { rows } = await q(`
       SELECT c.id, c.name, c.phone, c.debt_uzs, s.name AS first_seller,
         to_char((c.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD') AS first_seen,
@@ -93,13 +104,17 @@ router.get('/customers', adminOnly, async (req, res, next) => {
       FROM customers c
       LEFT JOIN sellers s ON s.id = c.first_seller_id
       LEFT JOIN sales v ON v.customer_id = c.id
-      WHERE ${s.where}${debtOnly}
+      WHERE ${s.where}${debtOnly}${dateCond}
       GROUP BY c.id, c.name, c.phone, c.debt_uzs, s.name, c.created_at
-      ORDER BY ${s.rank}, ${order}
+      ORDER BY ${s.rank ? s.rank + ', ' : ''}${order}
       LIMIT 500`, params);
     const tot = (await q('SELECT count(*) AS c, count(*) FILTER (WHERE debt_uzs > 0) AS d, coalesce(sum(debt_uzs), 0) AS s FROM customers')).rows[0];
+    // Tanlangan ro'yxatning (filtrlangan) umumiy qarzi
+    const shownDebt = rows.reduce((a, r) => a + Number(r.debt_uzs || 0), 0);
+    const shownDebtors = rows.filter(r => Number(r.debt_uzs) > 0).length;
     res.json({
       total: Number(tot.c), debtors: Number(tot.d), debt_sum: Number(tot.s),
+      shown_debt: shownDebt, shown_debtors: shownDebtors, shown: rows.length,
       customers: rows.map(r => ({
         id: r.id, name: r.name, phone: r.phone, first_seller: r.first_seller, first_seen: r.first_seen,
         visits: Number(r.visits), total_spent: Number(r.total_spent), last_visit: r.last_visit,
@@ -133,7 +148,7 @@ router.get('/customers/list', anyAuth, async (req, res, next) => {
       LEFT JOIN sales v ON v.customer_id = c.id
       WHERE ${s.where}
       GROUP BY c.id, c.name, c.phone, c.debt_uzs
-      ORDER BY ${s.rank}, max(v.created_at) DESC NULLS LAST, c.name
+      ORDER BY ${s.rank ? s.rank + ', ' : ''}max(v.created_at) DESC NULLS LAST, c.name
       LIMIT $${params.length}`, params);
     const total = (await q('SELECT count(*) AS c FROM customers')).rows[0];
     res.json({
