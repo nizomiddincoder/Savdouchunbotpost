@@ -327,6 +327,49 @@ function askModal(title, opts = {}) {
   });
 }
 
+/* Summa kiritish — so'm yoki USD tanlab (USD kurs bo'yicha so'mga aylanadi).
+   Qaytaradi: { uzs, note } yoki null. */
+function amountModal(opts = {}) {
+  return new Promise(resolve => {
+    openModal(
+      '<h3>' + (opts.danger ? icon('alert') : '') + esc(opts.title) + '</h3>' +
+      (opts.text ? '<div class="muted sm">' + esc(opts.text) + '</div>' : '') +
+      '<label class="lbl">' + esc(opts.amountLabel || 'Summa') + '</label>' +
+      '<div style="display:flex;gap:8px"><input class="inp" id="amVal" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" style="flex:1"' + (opts.default != null ? ' value="' + opts.default + '"' : '') + '>' +
+      '<div class="seg" id="amCur" style="flex:none"><button class="on" data-c="UZS">so\'m</button><button data-c="USD">$</button></div></div>' +
+      '<div class="hint" id="amHint" style="min-height:16px"></div>' +
+      (opts.note ? '<label class="lbl">' + esc(opts.noteLabel || 'Izoh') + '</label><input class="inp" id="amNote" placeholder="' + esc(opts.notePlaceholder || '') + '">' : '') +
+      '<div class="modal-btns"><button class="btn ghost" id="amNo">Bekor qilish</button>' +
+      '<button class="btn ' + (opts.danger ? 'danger' : '') + '" id="amYes">' + esc(opts.okText || 'Saqlash') + '</button></div>'
+    );
+    let cur = 'UZS';
+    const val = $('amVal'), hint = $('amHint');
+    const uzsOf = () => { const n = parseFloat(val.value); if (!isFinite(n)) return NaN; return cur === 'USD' ? Math.round(n * USD_RATE) : Math.round(n); };
+    const upd = () => {
+      const u = uzsOf();
+      if (!isFinite(u) || u < 0) { hint.textContent = ''; return; }
+      hint.textContent = cur === 'USD' ? '= ' + fmt(u) + ' so\'m' : (USD_RATE > 0 && u > 0 ? '≈ $' + fmtUsd(usdOf(u)) : '');
+    };
+    $('amCur').onclick = e => {
+      const b = e.target.closest('[data-c]'); if (!b) return;
+      if (b.dataset.c === 'USD' && !(USD_RATE > 0)) { toast('USD kursi belgilanmagan'); return; }
+      cur = b.dataset.c;
+      $('amCur').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      upd();
+    };
+    val.oninput = upd;
+    val.focus();
+    const done = v => { closeModal(); resolve(v); };
+    $('amNo').onclick = () => done(null);
+    $('amYes').onclick = () => {
+      const u = uzsOf();
+      if (!isFinite(u) || u < (opts.allowZero ? 0 : 1)) return toast('Summani kiriting');
+      done({ uzs: u, note: opts.note ? $('amNote').value.trim() : undefined });
+    };
+    val.onkeydown = e => { if (e.key === 'Enter' && !opts.note) $('amYes').click(); };
+  });
+}
+
 /* ===== Kirish ===== */
 function saveLogin(d) {
   TOKEN = d.token;
@@ -1475,11 +1518,12 @@ function posRenderOrder() {
       '<div class="o-ctl">' +
       '<div class="o-price' + (changed ? ' changed' : '') + '"><input class="price-inp" data-pid="' + it.p.id + '" type="number" min="0" step="1" inputmode="numeric" value="' + pr + '" aria-label="Narx" title="Narxni o\'zgartirish">' +
       (changed ? '<button class="unit reset" data-reset="' + it.p.id + '" title="Asl narx: ' + fmt(it.p.price_uzs) + '">' + fmt(it.p.price_uzs) + '</button>' : '<span class="unit">so\'m</span>') + '</div>' +
+      '<div class="o-qrow">' +
       '<div class="qstep"><button class="qbtn" data-act="minus" aria-label="Kamaytirish">' + icon('minus') + '</button>' +
       '<input class="qv-inp" data-pid="' + it.p.id + '" type="number" min="1" step="1" inputmode="numeric" value="' + it.qty + '" aria-label="Soni">' +
       '<button class="qbtn" data-act="plus" aria-label="Ko\'paytirish">' + icon('plus') + '</button></div>' +
       '<span class="o-sum num" data-sum="' + it.p.id + '">' + fmt(pr * it.qty) + '</span>' +
-      '</div></div></div>';
+      '</div></div></div></div>';
   }).join('') : '<div class="o-empty"><span class="ttl-ic">' + icon('cart') + '</span><b>Savat bo\'sh</b><span class="sm">Chapdagi mahsulotni bosing yoki nomini yozib Enter bosing</span></div>';
   box.scrollTop = st;
   posRenderFoot();
@@ -2136,28 +2180,30 @@ async function openCustomerHistory(id, onChange) {
   if (salesBox) salesBox.onclick = e => { const r = e.target.closest('[data-view]'); if (r) receiptModal(+r.dataset.view); };
   $('chPay').onclick = async () => {
     if (c.debt_uzs <= 0) return toast('Bu xaridorning qarzi yo\'q');
-    const amt = await askModal("To'lov summasi (jami qarz: " + dualMoney(c.debt_uzs) + ")", { input: true, numeric: true, placeholder: "Summa (so'm)", okText: 'Qayd etish' });
-    if (amt === null) return;
-    const amount = parseInt(String(amt).replace(/\s+/g, ''), 10);
-    if (!(amount > 0)) return toast('Summani kiriting');
-    const note = await askModal('Izoh (ixtiyoriy)', { input: true, placeholder: 'Masalan: qisman to\'ladi', okText: 'Saqlash' });
-    if (note === null) return;
+    const r = await amountModal({
+      title: 'To\'lov qayd etish', text: 'Jami qarz: ' + dualMoney(c.debt_uzs),
+      amountLabel: 'To\'lov summasi', okText: 'Qayd etish',
+      note: true, noteLabel: 'Izoh (ixtiyoriy)', notePlaceholder: 'Masalan: qisman to\'ladi'
+    });
+    if (!r) return;
+    // USD ni so'mga aylantirganda yaxlitlash qarzdan biroz oshsa — to'liq to'lov deb olamiz
+    const amount = Math.min(r.uzs, c.debt_uzs);
     try {
-      const r = await api('/customers/' + id + '/pay-debt', { method: 'POST', body: { amount, note } });
-      toast("To'lov qayd etildi. Qolgan qarz: " + fmt(r.debt_uzs), true);
+      const res = await api('/customers/' + id + '/pay-debt', { method: 'POST', body: { amount, note: r.note } });
+      toast("To'lov qayd etildi. Qolgan qarz: " + fmt(res.debt_uzs), true);
       openCustomerHistory(id, onChange);
       if (onChange) onChange();
     } catch (e) { toast(e.message); }
   };
   $('chFix').onclick = async () => {
-    const v = await askModal('Qarzning yangi qiymati (hozir: ' + dualMoney(c.debt_uzs) + ')', { input: true, numeric: true, placeholder: "Yangi qarz (so'm)", okText: 'Davom etish' });
-    if (v === null) return;
-    const nd = parseInt(String(v).replace(/\s+/g, ''), 10);
-    if (!isFinite(nd) || nd < 0) return toast('Summa noto\'g\'ri');
-    const reason = await askModal('Tuzatish sababi', { input: true, placeholder: 'Masalan: hisobda xatolik', okText: 'Saqlash' });
-    if (reason === null) return;
+    const r = await amountModal({
+      title: 'Qarzni tuzatish', text: 'Hozirgi qarz: ' + dualMoney(c.debt_uzs),
+      amountLabel: 'Yangi qarz qiymati', okText: 'Saqlash', allowZero: true, default: c.debt_uzs,
+      note: true, noteLabel: 'Sabab', notePlaceholder: 'Masalan: hisobda xatolik'
+    });
+    if (!r) return;
     try {
-      await api('/customers/' + id + '/debt', { method: 'PATCH', body: { debt_uzs: nd, reason } });
+      await api('/customers/' + id + '/debt', { method: 'PATCH', body: { debt_uzs: r.uzs, reason: r.note } });
       toast('Qarz tuzatildi', true);
       openCustomerHistory(id, onChange);
       if (onChange) onChange();
