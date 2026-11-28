@@ -1025,7 +1025,7 @@ const ADMIN_TABS = [
   ['sales', 'Savdolar', 'receipt'],
   ['products', 'Mahsulotlar', 'box'],
   ['customers', 'Xaridorlar', 'users'],
-  ['sellers', 'Sotuvchilar', 'user'],
+  ['sellers', 'Xodimlar', 'user'],
   ['settings', 'Sozlamalar', 'settings']
 ];
 let SHOP_NAME = '';
@@ -1735,75 +1735,246 @@ function openPinModal(pin, title) {
   $('pinOk').onclick = closeModal;
 }
 
+function balCell(bal) {
+  if (bal > 0) return '<span class="bal-pos">+' + fmt(bal) + '</span><div class="sub muted">chiqadigan' + (USD_RATE > 0 ? ' · $' + fmtUsd(usdOf(bal)) : '') + '</div>';
+  if (bal < 0) return '<span class="bal-neg">−' + fmt(-bal) + '</span><div class="sub muted">qarzdor' + (USD_RATE > 0 ? ' · $' + fmtUsd(usdOf(-bal)) : '') + '</div>';
+  return '<span class="muted">0</span>';
+}
+
 async function renderSellersTab(el) {
-  const d = await api('/sellers');
+  const [d, iv] = await Promise.all([api('/sellers'), api('/invites')]);
   const active = d.sellers.filter(s => s.is_active).length;
+  const pending = iv.invites.filter(i => i.status === 'pending');
   el.innerHTML =
-    pageHead('Sotuvchilar', active + ' ta faol sotuvchi', '<button class="btn" id="btnAddSeller">' + icon('userPlus', 's') + 'Sotuvchi qo\'shish</button>') +
+    pageHead('Xodimlar', active + ' ta faol xodim',
+      '<button class="btn ghost" id="btnAddSeller">' + icon('userPlus', 's') + 'Qo\'lda qo\'shish</button>' +
+      '<button class="btn" id="btnInvite">' + icon('userPlus', 's') + 'Taklif havolasi</button>') +
+    (pending.length ? '<div class="panel">' + panelHead('Kutilayotgan takliflar', pending.length + ' ta havola yuborilgan, hali qabul qilinmagan', 'arrowUR') +
+      pending.map(i =>
+        '<div class="li-row"><div><b>' + esc(i.name || 'Ism kiritilmagan') + '</b>' +
+        '<div class="muted sm">' + (i.phone ? esc(i.phone) + ' · ' : '') + 'maosh: ' + salaryText(i.salary_amount, i.salary_currency) + ' · ' + i.expires + ' gacha</div></div>' +
+        '<div class="acts"><button class="icon-btn sm flat" data-copy="' + esc(i.link) + '" title="Havolani nusxalash" aria-label="Nusxalash">' + icon('file', 's') + '</button>' +
+        '<button class="icon-btn sm flat danger" data-revoke="' + i.id + '" title="Bekor qilish" aria-label="Bekor qilish">' + icon('trash', 's') + '</button></div></div>'
+      ).join('') + '</div>' : '') +
     (d.sellers.length ? '<div class="table-wrap"><table class="table"><thead>' +
-    '<tr><th>Sotuvchi</th><th>PIN</th><th class="r">Bugun</th><th class="r">Bu oy</th><th>Holat</th><th></th></tr></thead><tbody>' +
+    '<tr><th>Xodim</th><th>PIN</th><th class="r">Oylik maosh</th><th class="r">Balans</th><th>Holat</th><th></th></tr></thead><tbody>' +
     d.sellers.map(s =>
       '<tr class="' + (s.is_active ? '' : 'row-off') + '">' +
       '<td><div class="t-name">' + avatar(s.name, 36) + '<div><b>' + esc(s.name) + '</b><div class="sub">' + esc(s.phone || 'telefon yo\'q') + '</div></div></div></td>' +
       '<td><b class="num" style="letter-spacing:3px;color:var(--acc)">' + esc(s.pin_view || '—') + '</b></td>' +
-      '<td class="r num">' + s.today_c + ' ta<div class="sub muted">' + fmt(s.today_s) + '</div></td>' +
-      '<td class="r num">' + s.month_c + ' ta<div class="sub muted">' + fmt(s.month_s) + '</div></td>' +
+      '<td class="r num">' + (s.salary_amount > 0 ? salaryText(s.salary_amount, s.salary_currency) : '<span class="muted">belgilanmagan</span>') + '</td>' +
+      '<td class="r num">' + balCell(s.balance_uzs) + '</td>' +
       '<td>' + (s.is_active ? '<span class="badge b-ok">Faol</span>' : '<span class="badge b-no">Bloklangan</span>') + '</td>' +
       '<td><div class="acts">' +
-      '<button class="icon-btn sm flat" data-ph="' + s.id + '" data-cur="' + esc(s.phone || '') + '" title="Telefonni o\'zgartirish" aria-label="Telefonni o\'zgartirish">' + icon('phone', 's') + '</button>' +
-      '<button class="icon-btn sm flat" data-pin="' + s.id + '" title="PIN almashtirish" aria-label="PIN almashtirish">' + icon('key', 's') + '</button>' +
-      '<button class="icon-btn sm flat' + (s.is_active ? ' danger' : '') + '" data-tgl="' + s.id + '" data-on="' + (s.is_active ? '0' : '1') + '" title="' + (s.is_active ? 'Bloklash' : 'Faollashtirish') + '" aria-label="' + (s.is_active ? 'Bloklash' : 'Faollashtirish') + '">' + icon(s.is_active ? 'pause' : 'play', 's') + '</button>' +
+      '<button class="btn soft" style="min-height:34px;padding:6px 12px" data-adv="' + s.id + '" data-name="' + esc(s.name) + '">' + icon('cash', 's') + 'Avans</button>' +
+      '<button class="btn soft" style="min-height:34px;padding:6px 12px" data-sal="' + s.id + '" data-name="' + esc(s.name) + '">' + icon('plus', 's') + 'Oylik</button>' +
+      '<button class="icon-btn sm flat" data-led="' + s.id + '" title="Tarix va sozlash" aria-label="Tarix">' + icon('history', 's') + '</button>' +
       '</div></td></tr>'
     ).join('') + '</tbody></table></div>'
-    : '<div class="panel empty">' + icon('users') + 'Sotuvchi yo\'q — birinchisini qo\'shing</div>');
+    : '<div class="panel empty">' + icon('users') + 'Xodim yo\'q — "Taklif havolasi" orqali qo\'shing</div>');
 
-  $('btnAddSeller').onclick = async () => {
-    const name = await askModal('Yangi sotuvchi ismi', { input: true, placeholder: 'Masalan: Aziz', okText: 'Keyingi' });
-    if (!name) return;
-    let phone = '';
-    while (true) {
-      const p = await askModal('Sotuvchi telefoni (chekda chiqadi)', { input: true, placeholder: 'Masalan: 901234567', okText: 'Yaratish' });
-      if (p === null) return;
-      if (p) { phone = p; break; }
-      toast('Telefon raqamini kiritish shart');
-    }
-    try {
-      const r = await api('/sellers', { method: 'POST', body: { name, phone } });
-      openPinModal(r.pin, name + ' — PIN kodi');
-      renderTab('sellers');
-    } catch (e) { toast(e.message); }
-  };
+  $('btnInvite').onclick = () => openInviteCreate(() => renderTab('sellers'));
+  $('btnAddSeller').onclick = () => openManualAdd(() => renderTab('sellers'));
   el.onclick = async e => {
-    const ph = e.target.closest('[data-ph]');
-    if (ph) {
-      const phone = await askModal('Sotuvchi telefoni (chekda chiqadi)', { input: true, placeholder: ph.dataset.cur || 'Masalan: 901234567', okText: 'Saqlash' });
-      if (phone === null) return;
-      if (!phone) return toast('Telefon raqami bo\'sh bo\'lishi mumkin emas');
-      try {
-        await api('/sellers/' + ph.dataset.ph, { method: 'PATCH', body: { phone } });
-        toast('Telefon saqlandi', true);
-        renderTab('sellers');
-      } catch (err) { toast(err.message); }
-      return;
-    }
-    const pn = e.target.closest('[data-pin]');
-    if (pn) {
-      if (await askModal('PIN almashtirilsinmi?', { okText: 'Almashtirish' })) {
-        try {
-          const r = await api('/sellers/' + pn.dataset.pin + '/reset-pin', { method: 'POST' });
-          openPinModal(r.pin, 'Yangi PIN');
-          renderTab('sellers');
-        } catch (err) { toast(err.message); }
+    const cp = e.target.closest('[data-copy]');
+    if (cp) { copyText(cp.dataset.copy); return; }
+    const rv = e.target.closest('[data-revoke]');
+    if (rv) {
+      if (await askModal('Taklif havolasi bekor qilinsinmi?', { okText: 'Bekor qilish', danger: true })) {
+        try { await api('/invites/' + rv.dataset.revoke, { method: 'DELETE' }); toast('Bekor qilindi', true); renderTab('sellers'); }
+        catch (err) { toast(err.message); }
       }
       return;
     }
-    const tg2 = e.target.closest('[data-tgl]');
-    if (tg2) {
-      try {
-        await api('/sellers/' + tg2.dataset.tgl, { method: 'PATCH', body: { is_active: tg2.dataset.on === '1' } });
-        renderTab('sellers');
-      } catch (err) { toast(err.message); }
+    const adv = e.target.closest('[data-adv]');
+    if (adv) return openSalaryEntry(+adv.dataset.adv, 'avans', adv.dataset.name, () => renderTab('sellers'));
+    const sal = e.target.closest('[data-sal]');
+    if (sal) return openSalaryEntry(+sal.dataset.sal, 'oylik', sal.dataset.name, () => renderTab('sellers'));
+    const led = e.target.closest('[data-led]');
+    if (led) return openEmployeeLedger(+led.dataset.led, () => renderTab('sellers'));
+  };
+}
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); toast('Havola nusxalandi', true); }
+  catch (e) { toast('Nusxalab bo\'lmadi — havolani qo\'lda belgilang'); }
+}
+
+/* Taklif havolasi yaratish */
+function openInviteCreate(onDone) {
+  openModal(
+    '<h3>' + icon('userPlus') + 'Taklif havolasi</h3>' +
+    '<div class="muted sm">Xodim shu havola orqali o\'zini ro\'yxatdan o\'tkazadi va PIN oladi.</div>' +
+    '<label class="lbl">Ism (ixtiyoriy)</label><input class="inp" id="ivcName" placeholder="Masalan: Jasur">' +
+    '<label class="lbl">Telefon (ixtiyoriy)</label><input class="inp" id="ivcPhone" type="tel" inputmode="tel" placeholder="901234567">' +
+    '<label class="lbl">Oylik maosh</label>' +
+    '<div style="display:flex;gap:8px"><input class="inp" id="ivcSalary" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" style="flex:1">' +
+    '<div class="seg" id="ivcCur" style="flex:none"><button class="on" data-c="UZS">so\'m</button><button data-c="USD">$</button></div></div>' +
+    '<div class="modal-btns"><button class="btn ghost" id="ivcCancel">Bekor</button><button class="btn" id="ivcGo">Havola yaratish</button></div>'
+  );
+  let cur = 'UZS';
+  $('ivcCur').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; cur = b.dataset.c; $('ivcCur').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+  $('ivcCancel').onclick = closeModal;
+  $('ivcGo').onclick = async function () {
+    const salary_amount = parseFloat($('ivcSalary').value) || 0;
+    this.disabled = true;
+    try {
+      const r = await api('/invites', { method: 'POST', body: { name: $('ivcName').value, phone: $('ivcPhone').value, salary_amount, salary_currency: cur } });
+      document.querySelector('#modalRoot .modal').innerHTML =
+        '<div class="m-icon">' + icon('check') + '</div><h3 style="justify-content:center">Havola tayyor</h3>' +
+        '<div class="muted sm" style="text-align:center">Shu havolani xodimga yuboring (Telegram, SMS). Bir martalik, 7 kun amal qiladi.</div>' +
+        '<div class="inv-box"><code id="ivcLink">' + esc(r.link) + '</code><button class="icon-btn sm" id="ivcCopy" title="Nusxalash">' + icon('file', 's') + '</button></div>' +
+        '<div style="height:12px"></div><button class="btn big" id="ivcClose">Tayyor</button>';
+      $('ivcCopy').onclick = () => copyText(r.link);
+      $('ivcClose').onclick = () => { closeModal(); if (onDone) onDone(); };
+    } catch (e) { toast(e.message); this.disabled = false; }
+  };
+}
+
+/* Qo'lda xodim qo'shish (PIN darhol beriladi) */
+function openManualAdd(onDone) {
+  openModal(
+    '<h3>' + icon('userPlus') + 'Qo\'lda xodim qo\'shish</h3>' +
+    '<label class="lbl">Ism *</label><input class="inp" id="maName" placeholder="Masalan: Aziz">' +
+    '<label class="lbl">Telefon *</label><input class="inp" id="maPhone" type="tel" inputmode="tel" placeholder="901234567">' +
+    '<label class="lbl">Oylik maosh</label>' +
+    '<div style="display:flex;gap:8px"><input class="inp" id="maSalary" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" style="flex:1">' +
+    '<div class="seg" id="maCur" style="flex:none"><button class="on" data-c="UZS">so\'m</button><button data-c="USD">$</button></div></div>' +
+    '<div class="modal-btns"><button class="btn ghost" id="maCancel">Bekor</button><button class="btn" id="maGo">Yaratish</button></div>'
+  );
+  let cur = 'UZS';
+  $('maCur').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; cur = b.dataset.c; $('maCur').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+  $('maCancel').onclick = closeModal;
+  $('maGo').onclick = async function () {
+    const name = $('maName').value.trim(), phone = $('maPhone').value.trim();
+    if (name.length < 2) return toast('Ismni kiriting');
+    if (!phone) return toast('Telefonni kiriting');
+    this.disabled = true;
+    try {
+      const r = await api('/sellers', { method: 'POST', body: { name, phone } });
+      const salary = parseFloat($('maSalary').value) || 0;
+      if (salary > 0) await api('/sellers/' + r.id, { method: 'PATCH', body: { salary_amount: salary, salary_currency: cur } });
+      closeModal();
+      openPinModal(r.pin, name + ' — PIN kodi');
+      if (onDone) onDone();
+    } catch (e) { toast(e.message); this.disabled = false; }
+  };
+}
+
+/* Avans berish / Oylik qo'shish */
+function openSalaryEntry(id, type, name, onDone) {
+  const isAvans = type === 'avans';
+  openModal(
+    '<h3>' + icon(isAvans ? 'cash' : 'plus') + (isAvans ? 'Avans berish' : 'Oylik qo\'shish') + '</h3>' +
+    '<div class="muted sm">' + esc(name) + (isAvans ? ' — berilgan pul balansdan chiqariladi' : ' — hisoblangan maosh balansga qo\'shiladi') + '</div>' +
+    '<label class="lbl">Summa</label>' +
+    '<div style="display:flex;gap:8px"><input class="inp" id="seAmt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" style="flex:1" autofocus>' +
+    '<div class="seg" id="seCur" style="flex:none"><button class="on" data-c="UZS">so\'m</button><button data-c="USD">$</button></div></div>' +
+    '<label class="lbl">Izoh (ixtiyoriy)</label><input class="inp" id="seNote" placeholder="' + (isAvans ? 'Masalan: oldindan' : 'Masalan: noyabr oyligi') + '">' +
+    '<div class="modal-btns"><button class="btn ghost" id="seCancel">Bekor</button><button class="btn ' + (isAvans ? 'danger' : '') + '" id="seGo">' + (isAvans ? 'Avans berish' : 'Oylik qo\'shish') + '</button></div>'
+  );
+  $('seAmt').focus();
+  let cur = 'UZS';
+  $('seCur').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; cur = b.dataset.c; $('seCur').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+  $('seCancel').onclick = closeModal;
+  $('seGo').onclick = async function () {
+    const amount = parseFloat($('seAmt').value);
+    if (!(amount > 0)) return toast('Summani kiriting');
+    this.disabled = true;
+    try {
+      const r = await api('/sellers/' + id + '/' + (isAvans ? 'advance' : 'salary'), { method: 'POST', body: { amount, currency: cur, note: $('seNote').value } });
+      closeModal();
+      toast((isAvans ? 'Avans yozildi' : 'Oylik qo\'shildi') + ' · balans: ' + fmt(r.balance_uzs), true);
+      if (onDone) onDone();
+    } catch (e) { toast(e.message); this.disabled = false; }
+  };
+}
+
+/* Xodim to'liq kartasi: balans, tarix, sozlash */
+async function openEmployeeLedger(id, onChange) {
+  let d;
+  try { d = await api('/sellers/' + id + '/ledger'); } catch (e) { return toast(e.message); }
+  const s = d.seller;
+  const bal = d.balance_uzs;
+  const refresh = () => { openEmployeeLedger(id, onChange); if (onChange) onChange(); };
+  openModal(
+    '<div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">' + avatar(s.name, 48) +
+    '<div><h3 style="margin:0">' + esc(s.name) + '</h3><div class="muted sm">' + esc(s.phone || 'telefon yo\'q') + (s.hired_at ? ' · ' + s.hired_at + ' dan' : '') + '</div></div></div>' +
+    '<div class="emp-hero ' + (bal >= 0 ? 'ok' : 'debt') + '" style="margin:10px 0">' +
+    '<div class="eh-top">' + icon(bal >= 0 ? 'wallet' : 'book') + '<span>' + (bal >= 0 ? 'Xodimga chiqadigan' : 'Xodim qarzdor') + '</span></div>' +
+    '<div class="eh-val num">' + fmt(Math.abs(bal)) + ' so\'m</div>' + (USD_RATE > 0 ? '<div class="eh-sub">≈ $' + fmtUsd(usdOf(Math.abs(bal))) + '</div>' : '') + '</div>' +
+    '<div class="stat-cards"><div class="scard"><div class="sc-l">Oylik maosh</div><div class="sc-v" style="font-size:16px">' + (s.salary_amount > 0 ? salaryText(s.salary_amount, s.salary_currency) : '—') + '</div></div>' +
+    '<div class="scard"><div class="sc-l">Hisoblangan</div><div class="sc-v num" style="color:var(--acc);font-size:16px">' + fmt(d.total_oylik) + '</div></div>' +
+    '<div class="scard"><div class="sc-l">Avans</div><div class="sc-v num" style="color:var(--danger);font-size:16px">' + fmt(d.total_avans) + '</div></div></div>' +
+    '<div class="filters">' +
+    '<button class="btn" id="elAdv">' + icon('cash', 's') + 'Avans berish</button>' +
+    '<button class="btn ghost" id="elSal">' + icon('plus', 's') + 'Oylik qo\'shish</button>' +
+    '<button class="btn soft" id="elEdit">' + icon('edit', 's') + 'Maoshni o\'zgartirish</button>' +
+    '</div>' +
+    '<div class="filters" style="margin-top:8px">' +
+    '<button class="btn soft" id="elPin">' + icon('key', 's') + 'PIN almashtirish</button>' +
+    '<button class="btn soft" id="elPhone">' + icon('phone', 's') + 'Telefon</button>' +
+    '<button class="btn ' + (s.phone ? 'danger-ghost' : 'soft') + '" id="elToggle" data-active="1">' + icon('pause', 's') + 'Bloklash</button>' +
+    '</div>' +
+    '<h4 class="sec-t">Maosh harakatlari</h4>' +
+    '<div class="panel" style="max-height:260px;overflow-y:auto;background:var(--soft2);padding:4px 14px">' +
+    (d.txs.length ? d.txs.map(t =>
+      '<div class="li-row"><div class="t-name"><span class="tx-ic ' + (t.type === 'avans' ? 'out' : 'in') + '">' + icon(t.type === 'avans' ? 'cash' : 'plus') + '</span>' +
+      '<div><b>' + (t.type === 'avans' ? 'Avans' : 'Oylik') + '</b><div class="sub">' + t.t + ' · ' + esc(t.by_name) + (t.note ? ' · ' + esc(t.note) : '') + '</div></div></div>' +
+      '<div style="display:flex;align-items:center;gap:8px"><b class="num" style="color:' + (t.type === 'avans' ? 'var(--danger)' : 'var(--acc)') + '">' + (t.type === 'avans' ? '−' : '+') + fmt(t.amount_uzs) + (t.currency === 'USD' ? ' ($' + fmtUsd(t.orig_amount) + ')' : '') + '</b>' +
+      '<button class="icon-btn sm flat danger" data-del="' + t.id + '" title="O\'chirish" aria-label="O\'chirish">' + icon('trash', 's') + '</button></div></div>'
+    ).join('') : '<div class="muted" style="padding:10px 0">Hali yozuv yo\'q</div>') + '</div>' +
+    '<div style="height:12px"></div><button class="btn ghost big" id="elClose">Yopish</button>', true
+  );
+  $('elClose').onclick = closeModal;
+  $('elAdv').onclick = () => openSalaryEntry(id, 'avans', s.name, refresh);
+  $('elSal').onclick = () => openSalaryEntry(id, 'oylik', s.name, refresh);
+  $('elEdit').onclick = () => openEditSalary(id, s.salary_amount, s.salary_currency, refresh);
+  $('elPin').onclick = async () => {
+    if (await askModal('PIN almashtirilsinmi?', { okText: 'Almashtirish' })) {
+      try { const r = await api('/sellers/' + id + '/reset-pin', { method: 'POST' }); openPinModal(r.pin, 'Yangi PIN'); if (onChange) onChange(); }
+      catch (e) { toast(e.message); }
     }
+  };
+  $('elPhone').onclick = async () => {
+    const phone = await askModal('Telefon raqami', { input: true, placeholder: s.phone || '901234567', okText: 'Saqlash' });
+    if (!phone) return;
+    try { await api('/sellers/' + id, { method: 'PATCH', body: { phone } }); toast('Saqlandi', true); refresh(); }
+    catch (e) { toast(e.message); }
+  };
+  $('elToggle').onclick = async () => {
+    try { await api('/sellers/' + id, { method: 'PATCH', body: { is_active: false } }); toast('Bloklandi', true); refresh(); }
+    catch (e) { toast(e.message); }
+  };
+  document.querySelector('#modalRoot [style*="max-height"]').onclick = async e => {
+    const dl = e.target.closest('[data-del]');
+    if (!dl) return;
+    if (await askModal('Bu yozuv o\'chirilsinmi?', { okText: 'O\'chirish', danger: true })) {
+      try { await api('/employee-tx/' + dl.dataset.del, { method: 'DELETE' }); toast('O\'chirildi', true); refresh(); }
+      catch (e) { toast(e.message); }
+    }
+  };
+}
+
+/* Maoshni o'zgartirish */
+function openEditSalary(id, amount, currency, onDone) {
+  openModal(
+    '<h3>' + icon('edit') + 'Oylik maosh</h3>' +
+    '<label class="lbl">Summa</label>' +
+    '<div style="display:flex;gap:8px"><input class="inp" id="esAmt" type="number" min="0" step="0.01" inputmode="decimal" value="' + (amount || '') + '" style="flex:1">' +
+    '<div class="seg" id="esCur" style="flex:none"><button class="' + (currency !== 'USD' ? 'on' : '') + '" data-c="UZS">so\'m</button><button class="' + (currency === 'USD' ? 'on' : '') + '" data-c="USD">$</button></div></div>' +
+    '<div class="hint">' + icon('info') + 'Bu — doimiy oylik. "Oylik qo\'shish"da default sifatida ishlatiladi.</div>' +
+    '<div class="modal-btns"><button class="btn ghost" id="esCancel">Bekor</button><button class="btn" id="esGo">Saqlash</button></div>'
+  );
+  let cur = currency === 'USD' ? 'USD' : 'UZS';
+  $('esCur').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; cur = b.dataset.c; $('esCur').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); };
+  $('esCancel').onclick = closeModal;
+  $('esGo').onclick = async function () {
+    const salary_amount = parseFloat($('esAmt').value);
+    if (!(salary_amount >= 0)) return toast('Summani kiriting');
+    this.disabled = true;
+    try { await api('/sellers/' + id, { method: 'PATCH', body: { salary_amount, salary_currency: cur } }); closeModal(); toast('Maosh saqlandi', true); if (onDone) onDone(); }
+    catch (e) { toast(e.message); this.disabled = false; }
   };
 }
 
@@ -2204,13 +2375,139 @@ async function downloadFile(path, name) {
   } catch (e) { toast(e.message); }
 }
 
+/* ==========================================================
+   XODIM — maosh sahifasi (sotuv yo'q)
+   ========================================================== */
+function tgChatId() {
+  try { return tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? String(tg.initDataUnsafe.user.id) : null; }
+  catch (e) { return null; }
+}
+function getParam(n) { try { return new URLSearchParams(location.search).get(n); } catch (e) { return null; } }
+
+// Maosh summasini ikkala valyutada matn qilib qaytaradi
+function salaryText(amount, currency) {
+  if (currency === 'USD') {
+    const uzs = USD_RATE > 0 ? Math.round(amount * USD_RATE) : 0;
+    return '$' + fmtUsd(amount) + (uzs ? ' · ' + fmt(uzs) + ' so\'m' : '');
+  }
+  return fmt(amount) + ' so\'m' + usdTail(amount);
+}
+
+async function renderEmployee() {
+  document.onkeydown = null;
+  let d;
+  try { d = await api('/me/salary'); } catch (e) { return; }
+  setRate(d.usd_rate);
+  const cid = tgChatId();
+  if (cid) api('/me/tg', { method: 'POST', body: { tg_chat_id: cid } }).catch(() => {});
+  const bal = d.balance_uzs;
+  const pos = bal >= 0;
+  app.innerHTML =
+    '<header class="topbar">' +
+    '<div><div class="shop-name">Mening maoshim</div><div class="muted sm">' + esc(d.name) + (d.hired_at ? ' · ' + d.hired_at + ' dan' : '') + '</div></div>' +
+    '<div class="tb-right">' +
+    '<button class="icon-btn" id="btnRefresh" title="Yangilash" aria-label="Yangilash">' + icon('refresh') + '</button>' +
+    scriptBtnHtml() + themeBtnHtml() +
+    '<button class="icon-btn danger" id="btnLogout" title="Chiqish" aria-label="Chiqish">' + icon('logout') + '</button>' +
+    '</div></header>' +
+    '<div class="wrap" id="empWrap">' +
+
+    // Balans kartasi
+    '<div class="emp-hero ' + (pos ? 'ok' : 'debt') + '">' +
+    '<div class="eh-top">' + icon(pos ? 'wallet' : 'book') + '<span>' + (pos ? 'Sizga chiqadigan' : 'Siz qarzdorsiz') + '</span></div>' +
+    '<div class="eh-val num">' + fmt(Math.abs(bal)) + ' so\'m</div>' +
+    (USD_RATE > 0 ? '<div class="eh-sub">≈ $' + fmtUsd(usdOf(Math.abs(bal))) + '</div>' : '') +
+    '</div>' +
+
+    // Oylik maosh + jami
+    '<div class="stat-cards">' +
+    '<div class="scard"><div class="sc-l">Oylik maosh</div><div class="sc-v" style="font-size:17px">' + salaryText(d.salary_amount, d.salary_currency) + '</div></div>' +
+    '<div class="scard"><div class="sc-l">Jami hisoblangan</div><div class="sc-v num" style="color:var(--acc)">' + fmt(d.total_oylik) + '</div><div class="sc-s">so\'m</div></div>' +
+    '<div class="scard"><div class="sc-l">Jami olingan avans</div><div class="sc-v num" style="color:var(--danger)">' + fmt(d.total_avans) + '</div><div class="sc-s">so\'m</div></div>' +
+    '</div>' +
+
+    // Tarix
+    '<div class="panel"><div class="p-head"><div class="p-head-l"><span class="ttl-ic">' + icon('history') + '</span><div class="p-title">Maosh harakatlari</div></div></div>' +
+    (d.txs.length ? '<div id="empTxs">' + d.txs.map(empTxRow).join('') + '</div>'
+      : '<div class="empty">' + icon('wallet') + 'Hali yozuv yo\'q</div>') +
+    '</div></div>';
+
+  document.getElementById('btnRefresh').onclick = renderEmployee;
+  document.getElementById('btnLogout').onclick = confirmLogout;
+  // Xabarlarni o'qildi deb belgilaymiz
+  if (d.unread > 0) api('/me/seen', { method: 'POST' }).catch(() => {});
+}
+
+function empTxRow(t) {
+  const isAvans = t.type === 'avans';
+  const amtTxt = (isAvans ? '− ' : '+ ') + fmt(t.amount_uzs) + ' so\'m' + (t.currency === 'USD' ? ' ($' + fmtUsd(t.orig_amount) + ')' : usdTail(t.amount_uzs));
+  return '<div class="li-row">' +
+    '<div class="t-name"><span class="tx-ic ' + (isAvans ? 'out' : 'in') + '">' + icon(isAvans ? 'cash' : 'plus') + '</span>' +
+    '<div><b>' + (isAvans ? 'Avans' : 'Oylik hisoblandi') + '</b><div class="sub">' + t.t + (t.note ? ' · ' + esc(t.note) : '') + '</div></div></div>' +
+    '<b class="num" style="color:' + (isAvans ? 'var(--danger)' : 'var(--acc)') + '">' + amtTxt + '</b></div>';
+}
+
+/* ===== Taklif havolasi orqali qabul ===== */
+async function renderInviteAccept(token) {
+  document.onkeydown = null;
+  let info;
+  try { info = await api('/invite/' + token); }
+  catch (e) {
+    app.innerHTML = '<div class="login-wrap"><div class="login-card">' +
+      '<div class="logo" style="background:var(--danger)">' + icon('x') + '</div>' +
+      '<h2>Havola yaroqsiz</h2><div class="muted sm">' + esc(e.message) + '</div>' +
+      '<div style="height:16px"></div><button class="btn big" id="toLogin">Kirish sahifasiga</button></div></div>';
+    document.getElementById('toLogin').onclick = () => { history.replaceState({}, '', location.pathname); renderLogin(); };
+    return;
+  }
+  app.innerHTML =
+    '<div class="login-wrap"><div class="login-card">' +
+    '<div class="logo">' + icon('userPlus') + '</div>' +
+    '<h2>Ishga qabul</h2>' +
+    '<div class="muted sm">' + esc(info.shop_name || 'Do\'kon') + ' jamoasiga qo\'shiling</div>' +
+    '<div style="height:14px"></div>' +
+    '<input class="inp" id="ivName" placeholder="Ism familiya" value="' + esc(info.name || '') + '" style="text-align:center">' +
+    '<input class="inp" id="ivPhone" type="tel" inputmode="tel" placeholder="Telefon (901234567)" value="' + esc(info.phone || '') + '" style="text-align:center;margin-top:10px">' +
+    '<div style="height:14px"></div>' +
+    '<button class="btn big" id="ivGo">' + icon('check', 's') + 'Qabul qilish</button>' +
+    '<div class="hint" style="justify-content:center;margin-top:12px">' + icon('info') + 'Qabul qilgach sizga PIN kod beriladi</div>' +
+    '<div style="margin-top:6px"><button class="link-btn btnScript no-trans">' + (SCRIPT === 'latin' ? 'Кирилл' : 'Lotin') + '</button></div>' +
+    '</div></div>';
+
+  document.getElementById('ivGo').onclick = async function () {
+    const name = document.getElementById('ivName').value.trim();
+    const phone = document.getElementById('ivPhone').value.trim();
+    if (name.length < 2) return toast('Ismingizni kiriting');
+    if (!phone) return toast('Telefon raqamini kiriting');
+    this.disabled = true;
+    try {
+      const acc = await api('/invite/' + token + '/accept', { method: 'POST', body: { name, phone, tg_chat_id: tgChatId() } });
+      history.replaceState({}, '', location.pathname);
+      // PIN ni bir marta ko'rsatamiz, keyin kiradi
+      openModal(
+        '<div class="m-icon">' + icon('key') + '</div>' +
+        '<h3 style="justify-content:center">Xush kelibsiz, ' + esc(name) + '!</h3>' +
+        '<div class="muted sm" style="text-align:center">Keyingi safar shu PIN bilan kirasiz. Saqlab qoling!</div>' +
+        '<div class="pin-big">' + esc(acc.pin) + '</div>' +
+        '<button class="btn big" id="ivOk">Davom etish</button>'
+      );
+      document.getElementById('ivOk').onclick = () => { closeModal(); saveLogin(acc); };
+    } catch (e) {
+      toast(e.message);
+      this.disabled = false;
+    }
+  };
+}
+
 /* ===== Ishga tushirish ===== */
 async function boot() {
+  const invite = getParam('invite');
+  if (invite) return renderInviteAccept(invite);
   if (!TOKEN) return renderLogin();
   try {
     const d = await api('/auth/me');
     ME = d.me;
-    if (ME.role === 'seller') renderSeller();
+    if (ME.role === 'seller') renderEmployee();
     else renderAdmin();
   } catch (e) { /* 401 bo'lsa renderLogin allaqachon chaqirildi */ }
 }

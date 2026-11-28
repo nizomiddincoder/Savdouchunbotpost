@@ -88,6 +88,23 @@ async function notifySale(r) {
   });
 }
 
+// Xodimga maosh harakati haqida shaxsiy xabar (botni ishga tushirgan bo'lsa)
+async function notifySalary(seller, tx) {
+  if (!process.env.BOT_TOKEN || !seller || !seller.tg_chat_id) return;
+  const bal = Number(tx.balance_uzs || 0);
+  const head = tx.type === 'avans' ? '💵 Sizga avans berildi' : '➕ Oylik hisoblandi';
+  const balLine = bal >= 0
+    ? `💼 Sizga chiqadigan: ${fmtUz(bal)} so'm`
+    : `📕 Siz qarzdor: ${fmtUz(-bal)} so'm`;
+  await tg('sendMessage', {
+    chat_id: seller.tg_chat_id,
+    text: `${head}\n` +
+      `💰 Summa: ${fmtUz(tx.amount_uzs)} so'm\n` +
+      (tx.note ? `📝 Izoh: ${tx.note}\n` : '') +
+      balLine
+  });
+}
+
 async function notifyCancel(r, byName, reason) {
   if (!process.env.BOT_TOKEN || !groupChatId) return;
   await tg('sendMessage', {
@@ -99,4 +116,4 @@ async function notifyCancel(r, byName, reason) {
   });
 }
 
-module.exports = { initBot, notifySale, notifyCancel };
+module.exports = { initBot, notifySale, notifyCancel, notifySalary };

@@ -119,6 +119,47 @@ async function initDb() {
     ON products (lower(btrim(regexp_replace(name, '\\s+', ' ', 'g')))) WHERE is_deleted = false`);
   await q(`CREATE UNIQUE INDEX IF NOT EXISTS customers_norm_uniq
     ON customers (lower(btrim(regexp_replace(name, '\\s+', ' ', 'g'))))`);
+
+  /* ===== Xodim (maosh) tizimi ===== */
+  // Oylik maosh — har xodim uchun summa + valyuta (UZS/USD)
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS salary_amount NUMERIC(14,2) NOT NULL DEFAULT 0`);
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS salary_currency TEXT NOT NULL DEFAULT 'UZS'`);
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS hired_at DATE`);
+  // Telegram shaxsiy xabar uchun chat id (mini app orqali olinadi)
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS tg_chat_id TEXT`);
+  // Xodim maosh sahifasini oxirgi ko'rgan vaqti — o'qilmagan xabarlarni sanash uchun
+  await q(`ALTER TABLE sellers ADD COLUMN IF NOT EXISTS salary_seen_at TIMESTAMPTZ`);
+  // Xodim moliyaviy harakatlari: avans (chiqim) va oylik (hisoblangan maosh, kirim)
+  await q(`
+    CREATE TABLE IF NOT EXISTS employee_tx (
+      id SERIAL PRIMARY KEY,
+      seller_id INT NOT NULL REFERENCES sellers(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,                 -- 'avans' | 'oylik'
+      amount_uzs BIGINT NOT NULL,         -- kanonik qiymat (so'mda)
+      orig_amount NUMERIC(14,2),          -- kiritilgan summa (asl valyutada)
+      currency TEXT NOT NULL DEFAULT 'UZS',
+      usd_rate NUMERIC(12,2),             -- yozilgan paytdagi kurs
+      note TEXT,
+      by_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+  await q(`CREATE INDEX IF NOT EXISTS employee_tx_seller_idx ON employee_tx (seller_id, id)`);
+  // Taklif havolalari — xodim shu orqali o'zini ro'yxatdan o'tkazadi
+  await q(`
+    CREATE TABLE IF NOT EXISTS invites (
+      id SERIAL PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      name TEXT,
+      phone TEXT,
+      salary_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      salary_currency TEXT NOT NULL DEFAULT 'UZS',
+      created_by TEXT,
+      used_by INT REFERENCES sellers(id) ON DELETE SET NULL,
+      used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+
   await q('INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
   const st = await getSettings();
   if (!st.jwt_secret && !process.env.JWT_SECRET) {

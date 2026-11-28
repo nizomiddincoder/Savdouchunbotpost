@@ -22,18 +22,27 @@ async function uniquePin(excludeId) {
   throw new Error('PIN yaratib bo\'lmadi, qayta urinib ko\'ring');
 }
 
+// Balans = hisoblangan oylik − berilgan avans (so'mda). Musbat = xodimga chiqadigan, manfiy = xodim qarzdor.
+const BAL_EXPR = `(SELECT coalesce(sum(CASE WHEN t.type='oylik' THEN t.amount_uzs ELSE -t.amount_uzs END), 0) FROM employee_tx t WHERE t.seller_id = s.id)`;
+
 router.get('/sellers', adminOnly, async (req, res, next) => {
   try {
     const { rows } = await q(`
       SELECT s.id, s.name, s.phone, s.is_active, s.pin_view,
+        s.salary_amount, s.salary_currency, to_char(s.hired_at, 'YYYY-MM-DD') AS hired_at,
+        ${BAL_EXPR} AS balance_uzs,
+        (SELECT max(t.created_at) FROM employee_tx t WHERE t.seller_id = s.id) AS last_tx,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_c,
         (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}')::date = ${TODAY}) AS today_s,
         (SELECT count(*) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}) AS month_c,
         (SELECT coalesce(sum(v.total_uzs), 0) FROM sales v WHERE v.seller_id = s.id AND v.is_cancelled = false AND (v.created_at AT TIME ZONE '${TZ}') >= ${MONTH_START}) AS month_s
-      FROM sellers s WHERE s.is_system = false ORDER BY s.name`);
+      FROM sellers s WHERE s.is_system = false ORDER BY s.is_active DESC, s.name`);
     res.json({
       sellers: rows.map(r => ({
         id: r.id, name: r.name, phone: r.phone || '', pin_view: r.pin_view || '', is_active: r.is_active,
+        salary_amount: Number(r.salary_amount), salary_currency: r.salary_currency || 'UZS', hired_at: r.hired_at,
+        balance_uzs: Number(r.balance_uzs),
+        last_tx: r.last_tx ? new Date(r.last_tx).toLocaleString('sv-SE', { timeZone: TZ }).slice(0, 16) : null,
         today_c: Number(r.today_c), today_s: Number(r.today_s),
         month_c: Number(r.month_c), month_s: Number(r.month_s)
       }))
@@ -70,6 +79,138 @@ router.patch('/sellers/:id', adminOnly, async (req, res, next) => {
       if (!/^\+?\d{7,15}$/.test(ph)) throw new Error("Sotuvchi telefon raqami noto'g'ri yoki bo'sh");
       await q('UPDATE sellers SET phone = $1 WHERE id = $2', [ph, req.params.id]);
     }
+    // Oylik maosh (summa + valyuta)
+    if (req.body.salary_amount !== undefined) {
+      const amt = Math.round(Number(req.body.salary_amount) * 100) / 100;
+      if (!isFinite(amt) || amt < 0) throw new Error('Oylik maosh summasi noto\'g\'ri');
+      const cur = req.body.salary_currency === 'USD' ? 'USD' : 'UZS';
+      await q('UPDATE sellers SET salary_amount = $1, salary_currency = $2 WHERE id = $3', [amt, cur, req.params.id]);
+    }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/* ================= Xodim maoshi: avans va oylik ================= */
+// Kiritilgan summani (valyuta bilan) so'mga aylantiradi
+function toUzs(amount, currency, rate) {
+  return currency === 'USD' ? Math.round(Number(amount) * Number(rate || 0)) : Math.round(Number(amount));
+}
+
+// Bitta moliyaviy harakat yozadi va xodimga xabar yuboradi
+async function addEmployeeTx(sellerId, type, body, byName) {
+  const s = (await q('SELECT id, name, salary_currency, tg_chat_id FROM sellers WHERE id = $1 AND is_system = false', [sellerId])).rows[0];
+  if (!s) throw new Error('Xodim topilmadi');
+  const st = await getSettings();
+  const rate = Number(st.usd_rate);
+  const currency = body.currency === 'USD' ? 'USD' : 'UZS';
+  const orig = Math.round(Number(body.amount) * 100) / 100;
+  if (!isFinite(orig) || orig <= 0) throw new Error('Summani kiriting');
+  if (currency === 'USD' && !(rate > 0)) throw new Error('USD kursi belgilanmagan');
+  const uzs = toUzs(orig, currency, rate);
+  const note = String(body.note || '').trim().slice(0, 200) || null;
+  const row = (await q(
+    `INSERT INTO employee_tx (seller_id, type, amount_uzs, orig_amount, currency, usd_rate, note, by_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_at`,
+    [sellerId, type, uzs, orig, currency, rate || null, note, byName || 'Admin'])).rows[0];
+  const bal = Number((await q(`SELECT coalesce(sum(CASE WHEN type='oylik' THEN amount_uzs ELSE -amount_uzs END), 0) AS b FROM employee_tx WHERE seller_id = $1`, [sellerId])).rows[0].b);
+  // Telegram xabar (xodim botni ishga tushirgan bo'lsa)
+  try {
+    const { notifySalary } = require('../bot');
+    notifySalary(s, { type, amount_uzs: uzs, note, balance_uzs: bal }).catch(() => {});
+  } catch (e) { /* bot yo'q bo'lsa — ilova ichidagi xabar ishlaydi */ }
+  return { id: row.id, balance_uzs: bal };
+}
+
+// Avans berish (xodimga pul berildi — balansdan chiqim)
+router.post('/sellers/:id/advance', adminOnly, async (req, res, next) => {
+  try { res.json({ ok: true, ...(await addEmployeeTx(+req.params.id, 'avans', req.body, req.user.name)) }); }
+  catch (e) { next(e); }
+});
+
+// Oylik qo'shish (maosh hisoblandi — balansga kirim)
+router.post('/sellers/:id/salary', adminOnly, async (req, res, next) => {
+  try { res.json({ ok: true, ...(await addEmployeeTx(+req.params.id, 'oylik', req.body, req.user.name)) }); }
+  catch (e) { next(e); }
+});
+
+// Xodim moliyaviy tarixi + balans (admin ko'rinishi)
+router.get('/sellers/:id/ledger', adminOnly, async (req, res, next) => {
+  try {
+    const s = (await q(`SELECT id, name, phone, salary_amount, salary_currency, to_char(hired_at,'YYYY-MM-DD') AS hired_at FROM sellers WHERE id = $1 AND is_system = false`, [req.params.id])).rows[0];
+    if (!s) throw new Error('Xodim topilmadi');
+    const txs = (await q(`
+      SELECT id, type, amount_uzs, orig_amount, currency, note, by_name,
+        to_char((created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS t
+      FROM employee_tx WHERE seller_id = $1 ORDER BY id DESC LIMIT 300`, [req.params.id])).rows;
+    const bal = Number((await q(`SELECT coalesce(sum(CASE WHEN type='oylik' THEN amount_uzs ELSE -amount_uzs END), 0) AS b FROM employee_tx WHERE seller_id = $1`, [req.params.id])).rows[0].b);
+    const sums = (await q(`SELECT
+        coalesce(sum(amount_uzs) FILTER (WHERE type='oylik'),0) AS oylik,
+        coalesce(sum(amount_uzs) FILTER (WHERE type='avans'),0) AS avans FROM employee_tx WHERE seller_id = $1`, [req.params.id])).rows[0];
+    res.json({
+      seller: { id: s.id, name: s.name, phone: s.phone || '', salary_amount: Number(s.salary_amount), salary_currency: s.salary_currency || 'UZS', hired_at: s.hired_at },
+      balance_uzs: bal, total_oylik: Number(sums.oylik), total_avans: Number(sums.avans),
+      txs: txs.map(t => ({ id: t.id, type: t.type, amount_uzs: Number(t.amount_uzs), orig_amount: Number(t.orig_amount), currency: t.currency, note: t.note, by_name: t.by_name, t: t.t }))
+    });
+  } catch (e) { next(e); }
+});
+
+// Bitta harakatni o'chirish (xato yozilsa)
+router.delete('/employee-tx/:txid', adminOnly, async (req, res, next) => {
+  try {
+    await q('DELETE FROM employee_tx WHERE id = $1', [req.params.txid]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/* ================= Taklif havolalari ================= */
+const crypto = require('crypto');
+function inviteLink(token) {
+  const base = (process.env.APP_URL || '').replace(/\/+$/, '');
+  return (base || '') + '/?invite=' + token;
+}
+
+router.post('/invites', adminOnly, async (req, res, next) => {
+  try {
+    const name = String(req.body.name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    const phone = String(req.body.phone || '').replace(/[^\d+]/g, '');
+    if (phone && !/^\+?\d{7,15}$/.test(phone)) throw new Error("Telefon raqami noto'g'ri");
+    const amt = Math.round(Number(req.body.salary_amount || 0) * 100) / 100;
+    if (!isFinite(amt) || amt < 0) throw new Error('Oylik maosh summasi noto\'g\'ri');
+    const cur = req.body.salary_currency === 'USD' ? 'USD' : 'UZS';
+    const days = Math.min(Math.max(parseInt(req.body.days) || 7, 1), 90);
+    const token = crypto.randomBytes(18).toString('base64url');
+    const { rows } = await q(
+      `INSERT INTO invites (token, name, phone, salary_amount, salary_currency, created_by, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now() + ($7 || ' days')::interval) RETURNING id`,
+      [token, name || null, phone || null, amt, cur, req.user.name || 'Admin', String(days)]);
+    res.json({ id: rows[0].id, token, link: inviteLink(token) });
+  } catch (e) { next(e); }
+});
+
+router.get('/invites', adminOnly, async (req, res, next) => {
+  try {
+    const { rows } = await q(`
+      SELECT i.id, i.token, i.name, i.phone, i.salary_amount, i.salary_currency,
+        i.used_by, s.name AS used_name, i.expires_at < now() AS expired,
+        to_char((i.created_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS created,
+        to_char((i.used_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS used,
+        to_char((i.expires_at AT TIME ZONE '${TZ}'), 'YYYY-MM-DD HH24:MI') AS expires
+      FROM invites i LEFT JOIN sellers s ON s.id = i.used_by
+      ORDER BY i.id DESC LIMIT 100`);
+    res.json({
+      invites: rows.map(i => ({
+        id: i.id, token: i.token, link: inviteLink(i.token), name: i.name, phone: i.phone,
+        salary_amount: Number(i.salary_amount), salary_currency: i.salary_currency,
+        status: i.used_by ? 'used' : (i.expired ? 'expired' : 'pending'),
+        used_name: i.used_name, created: i.created, used: i.used, expires: i.expires
+      }))
+    });
+  } catch (e) { next(e); }
+});
+
+router.delete('/invites/:id', adminOnly, async (req, res, next) => {
+  try {
+    await q('DELETE FROM invites WHERE id = $1 AND used_by IS NULL', [req.params.id]);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

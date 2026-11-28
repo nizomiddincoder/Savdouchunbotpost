@@ -11,12 +11,14 @@ router.use(express.json({ limit: '120mb' }));
 /* Har bir jadval uchun aniq ustunlar. Import ham aynan shu tartibda yozadi,
    shuning uchun backup faylida ortiqcha/yetishmayotgan ustun muammo bo'lmaydi. */
 const TABLES = [
-  { name: 'sellers', columns: ['id', 'name', 'pin_hash', 'is_active', 'created_at', 'phone', 'pin_view', 'is_system'] },
+  { name: 'sellers', columns: ['id', 'name', 'pin_hash', 'is_active', 'created_at', 'phone', 'pin_view', 'is_system', 'salary_amount', 'salary_currency', 'hired_at', 'tg_chat_id', 'salary_seen_at'] },
   { name: 'products', columns: ['id', 'name', 'price', 'currency', 'image', 'image_mime', 'created_by', 'created_at', 'is_deleted'], binary: ['image'] },
   { name: 'customers', columns: ['id', 'name', 'phone', 'first_seller_id', 'created_at', 'debt_uzs'] },
   { name: 'sales', columns: ['id', 'seller_id', 'customer_id', 'customer_name', 'total_uzs', 'usd_rate', 'is_cancelled', 'cancelled_by', 'cancelled_at', 'cancel_reason', 'reprint_count', 'created_at', 'payment_method', 'old_debt_uzs', 'receipt_script'] },
   { name: 'sale_items', columns: ['id', 'sale_id', 'product_id', 'product_name', 'qty', 'price_orig', 'currency', 'price_uzs', 'line_total_uzs', 'base_price_uzs'] },
   { name: 'customer_payments', columns: ['id', 'customer_id', 'amount_uzs', 'kind', 'note', 'by_name', 'debt_after_uzs', 'created_at'] },
+  { name: 'employee_tx', columns: ['id', 'seller_id', 'type', 'amount_uzs', 'orig_amount', 'currency', 'usd_rate', 'note', 'by_name', 'created_at'] },
+  { name: 'invites', columns: ['id', 'token', 'name', 'phone', 'salary_amount', 'salary_currency', 'created_by', 'used_by', 'used_at', 'expires_at', 'created_at'] },
   { name: 'settings', columns: ['id', 'shop_name', 'shop_phone', 'usd_rate', 'jwt_secret', 'admin_password_hash', 'phone_1', 'phone_2', 'receipt_title', 'printer_mode', 'printer_host', 'printer_port', 'printer_share', 'printer_name'], single: true }
 ];
 
@@ -97,7 +99,7 @@ router.post('/import', adminOnly, async (req, res, next) => {
 
     // Barcha ma'lumot jadvallari tozalanadi (tranzaksiya ichida — xato bo'lsa hammasi qaytadi)
     await client.query(
-      'TRUNCATE TABLE sale_items, sales, customer_payments, customers, products, sellers RESTART IDENTITY CASCADE');
+      'TRUNCATE TABLE employee_tx, invites, sale_items, sales, customer_payments, customers, products, sellers RESTART IDENTITY CASCADE');
 
     const imported = {};
     for (const t of DATA_TABLES) {

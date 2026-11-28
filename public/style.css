@@ -155,6 +155,21 @@ input, select, textarea { font: inherit; color: var(--ink); }
 .dup-mem .dm-main b { display: block; }
 .dup-group > .btn { margin-top: 8px; width: 100%; }
 
+/* ===== Xodim maosh sahifasi ===== */
+.emp-hero { border-radius: var(--r); padding: 22px; color: #fff; margin: 14px 0; background: var(--acc); box-shadow: 0 10px 28px rgba(23,138,79,.25); }
+.emp-hero.debt { background: var(--danger); box-shadow: 0 10px 28px rgba(220,59,59,.25); }
+.eh-top { display: flex; align-items: center; gap: 8px; font-weight: 600; opacity: .92; }
+.eh-val { font-size: 32px; font-weight: 800; letter-spacing: -.01em; margin: 10px 0 2px; }
+.eh-sub { opacity: .85; font-size: 14px; }
+.tx-ic { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.tx-ic.in { background: var(--acc-soft); color: var(--acc); }
+.tx-ic.out { background: var(--danger-soft); color: var(--danger); }
+.tx-ic .ic { width: 16px; height: 16px; }
+.inv-box { display: flex; align-items: center; gap: 8px; background: var(--soft2); border: 1px dashed var(--line); border-radius: var(--r-s); padding: 10px 12px; margin-top: 10px; }
+.inv-box code { flex: 1; min-width: 0; font-size: 12.5px; word-break: break-all; color: var(--ink2); }
+.bal-pos { color: var(--acc); font-weight: 700; }
+.bal-neg { color: var(--danger); font-weight: 700; }
+
 /* ===== Toast ===== */
 .toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(16px);

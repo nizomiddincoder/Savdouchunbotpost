@@ -23,6 +23,7 @@ const authRoutes = require('./src/routes/auth');
 const productRoutes = require('./src/routes/products');
 const saleRoutes = require('./src/routes/sales');
 const adminRoutes = require('./src/routes/admin');
+const employeeRoutes = require('./src/routes/employees');
 const backupRoutes = require('./src/routes/backup');
 const { initBot } = require('./src/bot');
 const { startPinRecovery } = require('./src/pin-view');
@@ -50,6 +51,7 @@ app.use(express.json({ limit: '25mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/sales', saleRoutes);
+app.use('/api', employeeRoutes);
 app.use('/api', adminRoutes);
 
 app.use((err, req, res, next) => {
